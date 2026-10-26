@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KohakuMoss 원클릭 LoRA</title>
+<style>
+  :root {
+    --bg: #0d0f13; --panel: #161a21; --panel2: #1d222b; --line: #2a303b;
+    --text: #e8ecf2; --dim: #8b94a3; --lime: #c4f542; --lime-ink: #1a2205;
+    --warn: #ffb547; --bad: #ff6b6b; --ok: #7be38f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(13,15,19,.92); backdrop-filter: blur(8px);
+           border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; align-items: center; gap: 14px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+  header h1 b { color: var(--lime); }
+  .pill { margin-left: auto; padding: 4px 12px; border-radius: 99px; background: var(--panel2); color: var(--dim); font-size: 13px; }
+  .pill.run { background: var(--lime); color: var(--lime-ink); font-weight: 700; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; display: grid; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; }
+  .card.off { opacity: .45; pointer-events: none; }
+  .card h2 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+  .num { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 13px;
+         background: var(--panel2); color: var(--dim); border: 1px solid var(--line); flex: none; }
+  .card.doneish .num { background: var(--lime); color: var(--lime-ink); border-color: var(--lime); }
+  .sub { color: var(--dim); font-size: 13px; margin: 0 0 14px 36px; }
+  .body { margin-left: 36px; }
+  label.f { display: block; font-size: 13px; color: var(--dim); margin: 12px 0 6px; }
+  input[type=text], input[type=number], textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+        border-radius: 9px; padding: 10px 12px; font: inherit; }
+  input:focus, textarea:focus { outline: 2px solid var(--lime); outline-offset: -1px; border-color: transparent; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 9px 16px;
+           border-radius: 9px; cursor: pointer; }
+  button:hover { border-color: var(--dim); }
+  button.go { background: var(--lime); color: var(--lime-ink); border-color: var(--lime); font-weight: 700; }
+  button.go:disabled { background: var(--panel2); color: var(--dim); border-color: var(--line); cursor: not-allowed; }
+  button.stop { border-color: var(--bad); color: var(--bad); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); }
+  .chip.ok { color: var(--ok); } .chip.no { color: var(--bad); } .chip.click { cursor: pointer; } .chip.click:hover { border-color: var(--lime); }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .mode { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer; background: var(--bg); }
+  .mode b { display: block; margin-bottom: 2px; } .mode span { font-size: 13px; color: var(--dim); }
+  .mode.on { border-color: var(--lime); box-shadow: inset 0 0 0 1px var(--lime); }
+  .mode .est { display: block; font-style: normal; font-size: 12px; color: var(--lime); margin-top: 6px; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 26px; text-align: center; color: var(--dim); cursor: pointer; }
+  .drop.over { border-color: var(--lime); color: var(--lime); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; }
+  .ph { position: relative; aspect-ratio: 3/4; border-radius: 9px; overflow: hidden; background: var(--bg); }
+  .ph img { width: 100%; height: 100%; object-fit: cover; }
+  .ph button { position: absolute; top: 4px; right: 4px; padding: 0 7px; border-radius: 7px; background: rgba(0,0,0,.6); font-size: 13px; }
+  .count { font-size: 13px; margin-top: 8px; } .count.ok { color: var(--ok); } .count.warn { color: var(--warn); }
+  .caps { display: grid; gap: 10px; margin-top: 14px; }
+  .cap { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: start; }
+  .cap img { width: 72px; height: 96px; object-fit: cover; border-radius: 8px; }
+  .cap textarea { min-height: 96px; resize: vertical; font-size: 13px; }
+  .bar { height: 12px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--lime); transition: width .6s; }
+  .big { font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+  .stats { display: flex; gap: 22px; flex-wrap: wrap; margin: 10px 0 12px; color: var(--dim); font-size: 13px; }
+  .stats b { color: var(--text); font-size: 15px; display: block; }
+  .samples { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+  .samples figure { margin: 0; } .samples img { width: 100%; border-radius: 9px; display: block; }
+  .samples figcaption { font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .err { background: rgba(255,107,107,.12); border: 1px solid var(--bad); color: #ffd0d0; border-radius: 10px; padding: 10px 14px; }
+  .note { font-size: 13px; color: var(--dim); }
+  code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; font-size: 14px; }
+  .result img { width: 100%; border-radius: 10px; margin-top: 12px; }
+  details summary { cursor: pointer; color: var(--dim); font-size: 13px; margin-top: 12px; }
+  @media (max-width: 640px) { .modes { grid-template-columns: 1fr; } .body, .sub { margin-left: 0; } }
+</style>
+</head>
+<body>
+<header><h1><b>KohakuMoss</b> 원클릭 LoRA 학습기</h1><span class="pill" id="pill">준비</span></header>
+<main>
+  <div id="error"></div>
+
+  <section class="card" id="c-setup">
+    <h2><span class="num">1</span>준비</h2>
+    <p class="sub">컴피 models 폴더와 MOSS 모델 3개를 확인해요. 처음 한 번만 하면 돼요.</p>
+    <div class="body" id="setup"></div>
+  </section>
+
+  <section class="card" id="c-info">
+    <h2><span class="num">2</span>무엇을 학습할까요</h2>
+    <p class="sub">트리거 단어는 컴피 프롬프트에 넣어 이 LoRA를 부르는 이름이에요.</p>
+    <div class="body">
+      <label class="f">트리거 단어 (영문 소문자·숫자)</label>
+      <input type="text" id="trigger" placeholder="예: bzsuit" autocomplete="off">
+      <label class="f">종류</label>
+      <div class="modes" id="modes">
+        <div class="mode" data-m="1"><b>사람</b><span>얼굴만 고정. 옷·배경은 프롬프트로 바뀌어요</span></div>
+        <div class="mode" data-m="2"><b>캐릭터 · 의상</b><span>의상·겉모습까지 통째로 고정해요</span></div>
+        <div class="mode" data-m="3"><b>얼굴 (디테일러용)</b><span>얼굴만 잘라 둔 사진을 넣어요</span></div>
+      </div>
+      <label class="f">무엇인지 짧게 (한글로 써도 캡션 단계에서 영어로 옮겨요)</label>
+      <input type="text" id="cls" placeholder="예: 초록 메뚜기 인형옷을 입은 남자" autocomplete="off">
+      <div class="chips" style="margin-top:8px">
+        <span class="chip click" data-ex="20대 한국 남자">20대 한국 남자</span>
+        <span class="chip click" data-ex="30대 한국 여자">30대 한국 여자</span>
+        <span class="chip click" data-ex="초록 메뚜기 인형옷을 입은 남자">초록 메뚜기 인형옷을 입은 남자</span>
+        <span class="chip click" data-ex="만화 캐릭터">만화 캐릭터</span>
+      </div>
+      <p class="note" id="clsen" style="margin:8px 0 0"></p>
+    </div>
+  </section>
+
+  <section class="card" id="c-photos">
+    <h2><span class="num">3</span>사진 넣기</h2>
+    <p class="sub">장소·옷·각도·조명이 다른 사진 15~30장이 좋아요. 같은 날 같은 장소 사진만 많으면 배경까지 외워요.</p>
+    <div class="body">
+      <div class="drop" id="drop">여기로 사진이나 폴더를 끌어다 놓거나 <u>눌러서 고르세요</u></div>
+      <input type="file" id="pick" accept="image/*" multiple hidden>
+      <div class="count" id="count"></div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </section>
+
+  <section class="card" id="c-caps">
+    <h2><span class="num">4</span>캡션</h2>
+    <p class="sub">사진마다 설명 문장을 자동으로 달아요. 마음에 안 드는 문장은 바로 고칠 수 있어요.</p>
+    <div class="body">
+      <div class="row"><button class="go" id="capbtn">캡션 달기</button><span class="note" id="capnote"></span></div>
+      <div id="capprog" style="margin-top:12px"></div>
+      <div class="caps" id="caps"></div>
+    </div>
+  </section>
+
+  <section class="card" id="c-train">
+    <h2><span class="num">5</span>학습</h2>
+    <p class="sub">학습하는 동안 컴피에 올라간 모델은 자동으로 내려요(컴피는 켜둔 채).</p>
+    <div class="body">
+      <label class="f" style="margin-top:0">학습 세기</label>
+      <div class="modes" id="strength">
+        <div class="mode" data-s="light"><b>가볍게</b><span>프롬프트를 더 잘 따라요. 덜 닮을 수 있어요</span><em class="est"></em></div>
+        <div class="mode on" data-s="normal"><b>기본 (추천)</b><span>테스트로 맞춘 기본값이에요</span><em class="est"></em></div>
+        <div class="mode" data-s="strong"><b>진하게</b><span>더 닮지만 배경·옷까지 외울 수 있어요</span><em class="est"></em></div>
+      </div>
+      <div id="planbox" class="note" style="margin-top:10px"></div>
+      <div class="row" style="margin-top:14px"><button class="go" id="trainbtn">학습 시작</button><button class="stop" id="stopbtn" hidden>멈추기</button></div>
+      <div id="trainprog" style="margin-top:16px"></div>
+      <div class="samples" id="samples"></div>
+    </div>
+  </section>
+
+  <section class="card" id="c-done">
+    <h2><span class="num">6</span>완료</h2>
+    <div class="body result" id="done"><p class="note">학습이 끝나면 여기에 결과가 나와요.</p></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let S = null, typing = {}, uploading = 0, strength = 'normal';
+
+async function post(url, data, raw) {
+  const r = await fetch(url, {method: 'POST', body: raw ? data : JSON.stringify(data || {})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { showErr(j.error || ('오류 ' + r.status)); throw new Error(j.error); }
+  return j;
+}
+function showErr(m) { $('#error').innerHTML = m ? `<div class="err">${esc(m)}</div>` : ''; }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function setCard(id, off, done) { const c = $(id); c.classList.toggle('off', !!off); c.classList.toggle('doneish', !!done); }
+
+function renderSetup() {
+  const el = $('#setup');
+  const s = S.settings || {};
+  if (!s.models) {
+    el.innerHTML = `<label class="f">컴피 models 폴더 (안에 loras, diffusion_models 폴더가 있는 곳)</label>
+      <div class="row"><input type="text" id="models" placeholder="예: C:\\ComfyUI\\models" style="flex:1"><button class="go" id="savemodels">저장</button></div>`;
+    $('#savemodels').onclick = async () => { await post('/api/settings', {models: $('#models').value}); showErr(''); tick(); };
+    return false;
+  }
+  const m = S.models || {};
+  const chips = Object.entries(m).map(([k, v]) => `<span class="chip ${v ? 'ok' : 'no'}">${v ? '✓ ' + esc(v) : '✗ ' + k + ' 없음'}</span>`).join('');
+  const lm = S.lmstudio ? `<span class="chip ok">캡션: LM 스튜디오 ${esc(S.lmstudio)}</span>` : `<span class="chip">캡션: 내장 Qwen3-VL-2B</span>`;
+  let dl = '';
+  if (S.missing && S.missing.length) {
+    dl = S.job.download ? `<p class="note" style="margin-top:10px">⏳ ${esc(S.job.download)}</p>`
+      : `<p class="note" style="margin-top:10px">없는 모델: ${S.missing.map(esc).join(', ')}</p><button class="go" id="dl">없는 모델 받기</button>`;
+  }
+  el.innerHTML = `<div class="note">models 폴더: <code>${esc(s.models)}</code> <a href="#" id="chg" style="color:var(--dim)">바꾸기</a></div>
+    <div class="chips" style="margin-top:10px">${chips}${lm}</div>${dl}`;
+  $('#chg').onclick = e => { e.preventDefault(); S.settings.models = ''; renderSetup(); };
+  if ($('#dl')) $('#dl').onclick = () => post('/api/download');
+  return !(S.missing && S.missing.length);
+}
+
+function renderInfo() {
+  const p = S.project;
+  if (!typing.trigger) $('#trigger').value = p.trigger;
+  if (!typing.cls) $('#cls').value = p.cls;
+  const ko = /[가-힣]/.test(p.cls || '');
+  $('#clsen').innerHTML = p.cls_en && p.cls_en !== p.cls ? `→ 영어로: <b style="color:var(--text)">${esc(p.cls_en)}</b>`
+    : ko ? '→ 캡션 달 때 영어로 옮겨요' : '';
+  document.querySelectorAll('.mode').forEach(m => m.classList.toggle('on', m.dataset.m === p.mode));
+  return !!(p.trigger && p.cls);
+}
+
+function renderPhotos() {
+  const ph = S.photos;
+  const n = ph.length;
+  $('#count').className = 'count ' + (n >= 15 ? 'ok' : n >= 5 ? 'warn' : '');
+  $('#count').textContent = (uploading ? `올리는 중… ${uploading}장 남음 · ` : '') +
+    (n ? `${n}장` + (n < 5 ? ' — 최소 5장이 필요해요' : n < 15 ? ' — 15장 이상이면 더 좋아요' : '') : '');
+  const key = ph.map(p => p.name).join('|');
+  if ($('#grid').dataset.key !== key) {
+    $('#grid').dataset.key = key;
+    $('#grid').innerHTML = ph.map(p => `<div class="ph"><img src="${p.url}" loading="lazy"><button data-del="${esc(p.name)}" title="빼기">×</button></div>`).join('');
+  }
+  return n >= 5;
+}
+
+function renderCaps() {
+  const j = S.job, ph = S.photos;
+  const busy = j.stage === 'captioning';
+  $('#capbtn').disabled = busy || j.stage === 'training';
+  $('#capbtn').textContent = ph.some(p => p.caption) ? '캡션 다시 달기' : '캡션 달기';
+  $('#capnote').textContent = busy ? j.msg : (S.lmstudio ? 'LM 스튜디오로 달아요' : '처음엔 캡션 모델(약 4GB)을 받느라 몇 분 더 걸려요');
+  $('#capprog').innerHTML = busy ? `<div class="bar"><i style="width:${j.cap_total ? 100 * j.cap_done / j.cap_total : 3}%"></i></div>
+     <p class="note">${j.cap_done} / ${j.cap_total}장</p>` : '';
+  const key = ph.map(p => p.name + p.caption.length).join('|');
+  if ($('#caps').dataset.key !== key && !document.activeElement.matches('#caps textarea')) {
+    $('#caps').dataset.key = key;
+    $('#caps').innerHTML = ph.filter(p => p.caption).map(p =>
+      `<div class="cap"><img src="${p.url}"><textarea data-name="${esc(p.name)}">${esc(p.caption)}</textarea></div>`).join('');
+  }
+  return ph.length > 0 && ph.every(p => p.caption);
+}
+
+function renderTrain() {
+  const j = S.job, pl = S.plan || {};
+  document.querySelectorAll('#strength .mode').forEach(m => {
+    m.classList.toggle('on', m.dataset.s === strength);
+    const p = pl[m.dataset.s];
+    m.querySelector('.est').textContent = p ? `약 ${p.minutes}분` : '';
+  });
+  const cur = pl[strength];
+  $('#planbox').innerHTML = cur ? `사진 ${S.photos.length}장 · ${cur.res} · ${cur.steps}스텝으로 자동 설정돼요 (RTX 3090 기준 시간)` : '';
+  document.querySelector('#strength').style.pointerEvents = j.stage === 'training' ? 'none' : '';
+  const running = j.stage === 'training';
+  $('#trainbtn').hidden = running; $('#stopbtn').hidden = !running;
+  $('#trainbtn').disabled = j.stage === 'captioning';
+  if (running || (j.stage === 'done' || j.stage === 'stopped' || j.stage === 'error') && j.total) {
+    const pct = j.total ? Math.round(100 * j.step / j.total) : 0;
+    $('#trainprog').innerHTML = `<div class="big">${pct}%</div><div class="bar" style="margin:8px 0"><i style="width:${pct}%"></i></div>
+      <div class="stats"><div><b>${j.step} / ${j.total}</b>스텝</div><div><b>${j.eta_min == null ? '계산 중' : j.eta_min + '분'}</b>남은 시간</div>
+      <div><b>${j.loss == null ? '-' : j.loss.toFixed(3)}</b>loss</div><div><b>${esc(j.stage === 'done' ? '끝' : j.stage === 'stopped' ? '멈춤' : j.phase || '')}</b>지금</div></div>`;
+  } else $('#trainprog').innerHTML = '';
+  const sm = (j.samples || []).slice().reverse();
+  const key = sm.map(s => s.url).join('|');
+  if ($('#samples').dataset.key !== key) {
+    $('#samples').dataset.key = key;
+    $('#samples').innerHTML = sm.map(s => `<figure><img src="${s.url}"><figcaption>${s.step}스텝 샘플</figcaption></figure>`).join('');
+  }
+}
+
+function renderDone() {
+  const j = S.job;
+  if (j.stage !== 'done') { setCard('#c-done', true, false); return; }
+  setCard('#c-done', false, true);
+  $('#done').innerHTML = `<p>컴피 LoRA 목록에서 <code>${esc(j.lora)}</code> 를 고르고, 프롬프트에 <code>${esc(S.project.trigger)}</code> 를 넣으세요.</p>
+    <p class="note">프롬프트가 잘 안 먹으면 LoRA 세기를 0.6~0.8로 낮춰 보세요. 배경·옷까지 너무 따라 나오면 중간 저장본
+      (<code>${esc(S.project.trigger)}-스텝수.safetensors</code>, 숫자가 작을수록 가벼워요)을 골라 보세요. 아래 비교 이미지에서 스텝별 결과를 볼 수 있어요.</p>
+    <div class="row"><button class="go" id="openl">LoRA 폴더 열기</button><button id="openr">작업 폴더 열기</button></div>
+    ${j.compare ? `<img src="${j.compare}" alt="학습 사진과 스텝별 샘플 비교">` : ''}`;
+  $('#openl').onclick = () => post('/api/open', {what: 'loras'});
+  $('#openr').onclick = () => post('/api/open', {what: 'run'});
+}
+
+async function tick() {
+  try { S = await (await fetch('/api/state')).json(); } catch { $('#pill').textContent = '연결 끊김 — 학습기 창이 켜져 있는지 확인'; return; }
+  const j = S.job;
+  $('#pill').className = 'pill' + (['captioning', 'training'].includes(j.stage) ? ' run' : '');
+  $('#pill').textContent = {idle: '준비', captioning: '캡션 다는 중', captioned: '캡션 완료', training: '학습 중', done: '완료', stopped: '멈춤', error: '오류'}[j.stage] || j.stage;
+  if (j.error) showErr(j.error); else if ($('#error').innerHTML && !j.error && ['captioning', 'training'].includes(j.stage)) showErr('');
+  const ready = renderSetup();
+  setCard('#c-setup', false, ready);
+  const infoOk = renderInfo();
+  setCard('#c-info', !ready, infoOk);
+  const photosOk = renderPhotos();
+  setCard('#c-photos', !ready || !S.project.trigger, photosOk);
+  const capsOk = renderCaps();
+  setCard('#c-caps', !ready || !photosOk || !infoOk, capsOk);
+  renderTrain();
+  setCard('#c-train', !ready || !capsOk, j.stage === 'done');
+  renderDone();
+}
+
+// inputs
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+const saveProject = debounce(async d => { await post('/api/project', d); typing = {}; tick(); }, 500);
+$('#trigger').oninput = e => { typing.trigger = 1; e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''); saveProject({trigger: e.target.value}); };
+$('#cls').oninput = e => { typing.cls = 1; saveProject({cls: e.target.value}); };
+document.querySelectorAll('.chip[data-ex]').forEach(c => c.onclick = () => { $('#cls').value = c.dataset.ex; saveProject({cls: c.dataset.ex}); });
+$('#modes').onclick = e => { const m = e.target.closest('.mode'); if (m) post('/api/project', {mode: m.dataset.m}).then(tick); };
+
+// photos
+async function upload(files) {
+  files = [...files].filter(f => f.type.startsWith('image/'));
+  uploading += files.length; tick();
+  for (const f of files) {
+    try { await post('/api/photo?name=' + encodeURIComponent(f.name), f, true); } catch {}
+    uploading--;
+  }
+  tick();
+}
+async function filesFromDrop(items) {
+  const out = [];
+  async function walk(entry) {
+    if (entry.isFile) out.push(await new Promise(r => entry.file(r)));
+    else if (entry.isDirectory) {
+      const rd = entry.createReader();
+      let batch;
+      do { batch = await new Promise(r => rd.readEntries(r)); for (const e of batch) await walk(e); } while (batch.length);
+    }
+  }
+  for (const it of items) { const e = it.webkitGetAsEntry && it.webkitGetAsEntry(); if (e) await walk(e); }
+  return out;
+}
+const drop = $('#drop');
+drop.onclick = () => $('#pick').click();
+$('#pick').onchange = e => upload(e.target.files);
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = async e => { e.preventDefault(); drop.classList.remove('over'); upload(await filesFromDrop(e.dataTransfer.items)); };
+$('#grid').onclick = e => { const n = e.target.dataset.del; if (n) post('/api/photo_delete', {name: n}).then(tick); };
+
+// captions / training
+$('#capbtn').onclick = () => { showErr(''); post('/api/caption', {}).then(tick); };
+$('#caps').addEventListener('change', e => { if (e.target.matches('textarea')) post('/api/caption_edit', {name: e.target.dataset.name, text: e.target.value}); });
+$('#strength').onclick = e => { const m = e.target.closest('.mode'); if (m) { strength = m.dataset.s; renderTrain(); } };
+$('#trainbtn').onclick = () => { showErr(''); post('/api/train', {strength}).then(tick); };
+$('#stopbtn').onclick = () => { if (confirm('학습을 멈출까요? 지금까지 진행은 사라져요.')) post('/api/stop').then(tick); };
+
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

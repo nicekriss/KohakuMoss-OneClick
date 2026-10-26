@@ -1,0 +1,7 @@
+# per-PC state: models path, last project, KohakuMoss location
+settings.json
+kohaku_path.txt
+# training work folders (photos, captions, logs)
+runs/
+__pycache__/
+*.pyc
