@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="140" alt="KohakuMoss 원클릭 학습기 아이콘"></p>
+
 # KohakuMoss 원클릭 LoRA 학습기
 
 **MOSS-Image**에 내 얼굴·캐릭터·의상을 가르치는 LoRA를, 브라우저 화면에서 클릭 몇 번으로 만듭니다.
@@ -30,6 +32,7 @@ git clone https://github.com/nicekriss/KohakuMoss-OneClick
 
 `KohakuMoss_원클릭학습.bat`을 더블클릭하면 브라우저에 학습기 화면이 열려요.
 검은 창은 학습기 본체라서, 닫으면 학습기가 꺼집니다.
+`바로가기_만들기.bat`을 한 번 실행하면 바탕화면에 베짱이 아이콘 바로가기가 생겨요.
 
 | 단계 | 하는 일 |
 |---|---|

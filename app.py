@@ -284,6 +284,8 @@ class H(BaseHTTPRequestHandler):
         parts = [urllib.parse.unquote(x) for x in u.path.split("/") if x]
         if not parts:
             return self.file(HERE / "ui.html")
+        if parts == ["icon.png"]:
+            return self.file(HERE / "icon.png")
         if parts == ["api", "state"]:
             return self.send(200, api_state())
         if parts[0] == "run" and ".." not in parts:

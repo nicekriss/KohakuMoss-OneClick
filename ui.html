@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KohakuMoss 원클릭 LoRA</title>
+<link rel="icon" type="image/png" href="/icon.png">
 <style>
   :root {
     --bg: #0d0f13; --panel: #161a21; --panel2: #1d222b; --line: #2a303b;
@@ -15,6 +16,7 @@
   header { position: sticky; top: 0; z-index: 5; background: rgba(13,15,19,.92); backdrop-filter: blur(8px);
            border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; align-items: center; gap: 14px; }
   header h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+  header .logo { width: 34px; height: 34px; margin: -6px 0; }
   header h1 b { color: var(--lime); }
   .pill { margin-left: auto; padding: 4px 12px; border-radius: 99px; background: var(--panel2); color: var(--dim); font-size: 13px; }
   .pill.run { background: var(--lime); color: var(--lime-ink); font-weight: 700; }
@@ -74,7 +76,7 @@
 </style>
 </head>
 <body>
-<header><h1><b>KohakuMoss</b> 원클릭 LoRA 학습기</h1><span class="pill" id="pill">준비</span></header>
+<header><img src="/icon.png" alt="" class="logo"><h1><b>KohakuMoss</b> 원클릭 LoRA 학습기</h1><span class="pill" id="pill">준비</span></header>
 <main>
   <div id="error"></div>
 
