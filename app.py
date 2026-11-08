@@ -345,8 +345,9 @@ def api_state():
     with LOCK:
         st["job"] = dict(STATE)
     st["job"]["samples"] = samples()
-    if (RUNS / PROJECT["trigger"] / "compare.jpg").exists() and STATE["stage"] == "done":
-        st["job"]["compare"] = f"/run/{PROJECT['trigger']}/compare.jpg?{int(time.time())}"
+    cmp = RUNS / PROJECT["trigger"] / "compare.jpg"
+    if cmp.exists() and STATE["stage"] == "done":  # 파일 수정 시각으로 — 매번 바뀌면 이미지가 2초마다 다시 로드돼 화면이 흔들림
+        st["job"]["compare"] = f"/run/{PROJECT['trigger']}/compare.jpg?{int(cmp.stat().st_mtime)}"
     return st
 
 

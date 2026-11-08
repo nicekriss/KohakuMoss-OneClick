@@ -202,10 +202,14 @@ function showErr(m) { $('#error').innerHTML = m ? `<div class="err">${esc(m)}</d
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function setCard(id, off, done) { const c = $(id); c.classList.toggle('off', !!off); c.classList.toggle('doneish', !!done); }
 
+// 내용이 바뀔 때만 다시 그림 — 매 2초 통째로 갈아끼우면 이미지가 다시 로드되며 화면이 흔들림
+function put(el, html) { if (el.dataset.h === html) return false; el.dataset.h = html; el.innerHTML = html; return true; }
+
 function renderSetup() {
   const el = $('#setup');
   const s = S.settings || {};
   if (!s.models) {
+    el.dataset.h = '';
     el.innerHTML = `<label class="f">컴피 models 폴더 (안에 loras, diffusion_models 폴더가 있는 곳)</label>
       <div class="row"><input type="text" id="models" placeholder="예: C:\\ComfyUI\\models" style="flex:1"><button class="go" id="savemodels">저장</button></div>`;
     $('#savemodels').onclick = async () => { await post('/api/settings', {models: $('#models').value}); showErr(''); tick(); };
@@ -219,10 +223,11 @@ function renderSetup() {
     dl = S.job.download ? `<p class="note" style="margin-top:10px">⏳ ${esc(S.job.download)}</p>`
       : `<p class="note" style="margin-top:10px">없는 모델: ${S.missing.map(esc).join(', ')}</p><button class="go" id="dl">없는 모델 받기</button>`;
   }
-  el.innerHTML = `<div class="note">models 폴더: <code>${esc(s.models)}</code> <a href="#" id="chg" style="color:var(--dim)">바꾸기</a></div>
-    <div class="chips" style="margin-top:10px">${chips}${lm}</div>${dl}`;
-  $('#chg').onclick = e => { e.preventDefault(); S.settings.models = ''; renderSetup(); };
-  if ($('#dl')) $('#dl').onclick = () => post('/api/download');
+  if (put(el, `<div class="note">models 폴더: <code>${esc(s.models)}</code> <a href="#" id="chg" style="color:var(--dim)">바꾸기</a></div>
+    <div class="chips" style="margin-top:10px">${chips}${lm}</div>${dl}`)) {
+    $('#chg').onclick = e => { e.preventDefault(); S.settings.models = ''; renderSetup(); };
+    if ($('#dl')) $('#dl').onclick = () => post('/api/download');
+  }
   return !(S.missing && S.missing.length);
 }
 
@@ -268,8 +273,8 @@ function renderCaps() {
   $('#capbtn').disabled = busy || j.stage === 'training';
   $('#capbtn').textContent = ph.some(p => p.caption) ? '캡션 다시 달기' : '캡션 달기';
   $('#capnote').textContent = busy ? j.msg : (S.lmstudio ? 'LM 스튜디오로 달아요' : '처음엔 캡션 모델(약 4GB)을 받느라 몇 분 더 걸려요');
-  $('#capprog').innerHTML = busy ? `<div class="bar"><i style="width:${j.cap_total ? 100 * j.cap_done / j.cap_total : 3}%"></i></div>
-     <p class="note">${j.cap_done} / ${j.cap_total}장</p>` : '';
+  put($('#capprog'), busy ? `<div class="bar"><i style="width:${j.cap_total ? 100 * j.cap_done / j.cap_total : 3}%"></i></div>
+     <p class="note">${j.cap_done} / ${j.cap_total}장</p>` : '');
   const key = ph.map(p => p.name + p.caption.length).join('|');
   if ($('#caps').dataset.key !== key && !document.activeElement.matches('#caps textarea')) {
     $('#caps').dataset.key = key;
@@ -287,17 +292,17 @@ function renderTrain() {
     m.querySelector('.est').textContent = p ? `약 ${p.minutes}분` : '';
   });
   const cur = pl[strength];
-  $('#planbox').innerHTML = cur ? `사진 ${S.photos.length}장 · ${cur.res} · ${cur.steps}스텝으로 자동 설정돼요 (RTX 3090 기준 시간)` : '';
+  put($('#planbox'), cur ? `사진 ${S.photos.length}장 · ${cur.res} · ${cur.steps}스텝으로 자동 설정돼요 (RTX 3090 기준 시간)` : '');
   document.querySelector('#strength').style.pointerEvents = j.stage === 'training' ? 'none' : '';
   const running = j.stage === 'training';
   $('#trainbtn').hidden = running; $('#stopbtn').hidden = !running;
   $('#trainbtn').disabled = j.stage === 'captioning';
   if (running || (j.stage === 'done' || j.stage === 'stopped' || j.stage === 'error') && j.total) {
     const pct = j.total ? Math.round(100 * j.step / j.total) : 0;
-    $('#trainprog').innerHTML = `<div class="big">${pct}%</div><div class="bar" style="margin:8px 0"><i style="width:${pct}%"></i></div>
+    put($('#trainprog'), `<div class="big">${pct}%</div><div class="bar" style="margin:8px 0"><i style="width:${pct}%"></i></div>
       <div class="stats"><div><b>${j.step} / ${j.total}</b>스텝</div><div><b>${j.eta_min == null ? '계산 중' : j.eta_min + '분'}</b>남은 시간</div>
-      <div><b>${j.loss == null ? '-' : j.loss.toFixed(3)}</b>loss</div><div><b>${esc(j.stage === 'done' ? '끝' : j.stage === 'stopped' ? '멈춤' : j.phase || '')}</b>지금</div></div>`;
-  } else $('#trainprog').innerHTML = '';
+      <div><b>${j.loss == null ? '-' : j.loss.toFixed(3)}</b>loss</div><div><b>${esc(j.stage === 'done' ? '끝' : j.stage === 'stopped' ? '멈춤' : j.phase || '')}</b>지금</div></div>`);
+  } else put($('#trainprog'), '');
   const sm = (j.samples || []).slice().reverse();
   const key = sm.map(s => s.url).join('|');
   if ($('#samples').dataset.key !== key) {
@@ -308,13 +313,13 @@ function renderTrain() {
 
 function renderDone() {
   const j = S.job;
-  if (j.stage !== 'done') { setCard('#c-done', true, false); return; }
+  if (j.stage !== 'done') { setCard('#c-done', true, false); put($('#done'), ''); return; }
   setCard('#c-done', false, true);
-  $('#done').innerHTML = `<p>컴피 LoRA 목록에서 <code>${esc(j.lora)}</code> 를 고르고, 프롬프트에 <code>${esc(S.project.trigger)}</code> 를 넣으세요.</p>
+  if (!put($('#done'), `<p>컴피 LoRA 목록에서 <code>${esc(j.lora)}</code> 를 고르고, 프롬프트에 <code>${esc(S.project.trigger)}</code> 를 넣으세요.</p>
     <p class="note">프롬프트가 잘 안 먹으면 LoRA 세기를 0.6~0.8로 낮춰 보세요. 배경·옷까지 너무 따라 나오면 중간 저장본
       (<code>${esc(S.project.trigger)}-스텝수.safetensors</code>, 숫자가 작을수록 가벼워요)을 골라 보세요. 아래 비교 이미지에서 스텝별 결과를 볼 수 있어요.</p>
     <div class="row"><button class="go" id="openl">LoRA 폴더 열기</button><button id="openr">작업 폴더 열기</button></div>
-    ${j.compare ? `<img src="${j.compare}" alt="학습 사진과 스텝별 샘플 비교">` : ''}`;
+    ${j.compare ? `<img src="${j.compare}" alt="학습 사진과 스텝별 샘플 비교">` : ''}`)) return;
   $('#openl').onclick = () => post('/api/open', {what: 'loras'});
   $('#openr').onclick = () => post('/api/open', {what: 'run'});
 }
