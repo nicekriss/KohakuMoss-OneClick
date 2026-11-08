@@ -5,7 +5,7 @@
 One job at a time: photos -> captions (editable) -> training -> LoRA in ComfyUI's list. The pipeline pieces live in
 oneclick.py (which also still works as a console tool).
 """
-import json, os, re, shutil, subprocess, sys, threading, time, urllib.parse, webbrowser
+import json, os, re, shutil, subprocess, sys, threading, time, urllib.parse, urllib.request, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
@@ -19,7 +19,7 @@ HERE = oc.HERE
 RUNS = HERE / "runs"
 LOCK = threading.Lock()
 STATE = {"stage": "idle", "msg": "", "error": "", "cap_done": 0, "cap_total": 0, "step": 0, "total": 0, "loss": None,
-         "eta_min": None, "phase": "", "name": "", "lora": "", "download": ""}
+         "eta_min": None, "phase": "", "name": "", "lora": "", "lora_base": "", "download": ""}
 PROJECT = {"trigger": "", "mode": "2", "cls": ""}
 PROC = {"p": None, "stop": False}
 MODE_SEC = {"768": 7.1, "1024": 6.7}  # seconds per step on an RTX 3090 (10-26 measurements)
@@ -35,6 +35,58 @@ def kohaku():
 
 def trig_clean(t):
     return re.sub(r"[^a-z0-9]", "", (t or "").lower())
+
+
+def lora_clean(t):
+    return re.sub(r"[^A-Za-z0-9_-]", "", (t or "").strip())[:60]
+
+
+def lora_name():
+    """LoRA file name (without .safetensors): the one typed on the page, else the trigger."""
+    return PROJECT.get("lora") or PROJECT["trigger"]
+
+
+def lora_dir():
+    m = settings().get("models")
+    return Path(m) / "loras" / "MOSS" if m else None
+
+
+def lora_exists(name):
+    d = lora_dir()
+    if not (d and name and d.is_dir()):
+        return False
+    return (d / f"{name}.safetensors").exists() or any(
+        p.stem[len(name) + 1:].isdigit() for p in d.glob(f"{name}-*.safetensors"))
+
+
+def lora_suggest(name):
+    i = 2
+    while lora_exists(f"{name}_{i}"):
+        i += 1
+    return f"{name}_{i}"
+
+
+SEEN = {}  # lora name -> (checked_at, result)
+
+
+def comfy_sees(name):
+    """Does a running ComfyUI list MOSS/<name>.safetensors? None = no ComfyUI answered.
+    Catches the common mix-up: the trainer's models folder is not the one ComfyUI actually reads."""
+    hit = SEEN.get(name)
+    if hit and time.time() - hit[0] < 30:
+        return hit[1]
+    res = None
+    for port in oc.COMFY_PORTS:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/models/loras", timeout=2) as r:
+                names = [x.replace("\\", "/").lower() for x in json.loads(r.read())]
+        except Exception:
+            continue
+        res = {"port": port, "seen": f"moss/{name.lower()}.safetensors" in names}
+        if res["seen"]:
+            break
+    SEEN[name] = (time.time(), res)
+    return res
 
 
 def data_dir(trig=None):
@@ -267,7 +319,8 @@ def train_job(strength):
     work, imgs = RUNS / trig, sorted(data_dir().glob("*.jpg"))
     logf = work / "log.txt"
     steps, every, extra, _, _ = plan(len(imgs), mode, strength)
-    name = f"{trig}-{steps}"
+    out = lora_name()
+    name = f"{out}-{steps}"
     set_state(stage="training", phase="설정 만드는 중", step=0, total=steps, loss=None, eta_min=None, name=name, error="", lora="")
     weights = oc.weights_dir(models, oc.find_models(models))
     prompt = (f"{trig}, close-up of the face, soft window light, photo" if mode == "3"
@@ -302,13 +355,13 @@ def train_job(strength):
     rundir = kdir / "runs" / "moss" / name
     out_dir = models / "loras" / "MOSS"
     out_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(rundir / "export" / f"{name}-comfy.safetensors", out_dir / f"{trig}.safetensors")
+    shutil.copy2(rundir / "export" / f"{name}-comfy.safetensors", out_dir / f"{out}.safetensors")
     for ck in sorted((rundir / "checkpoints").glob("step_*")):
         f = ck / "export" / f"{name}-comfy.safetensors"
         if f.exists() and int(ck.name.split("_")[1]) % every == 0:
-            shutil.copy2(f, out_dir / f"{trig}-{int(ck.name.split('_')[1])}.safetensors")
+            shutil.copy2(f, out_dir / f"{out}-{int(ck.name.split('_')[1])}.safetensors")
     oc.sheet(imgs[:3], rundir / "samples", work / "compare.jpg")
-    set_state(stage="done", phase="", step=steps, eta_min=0, lora=f"MOSS\\{trig}.safetensors")
+    set_state(stage="done", phase="", step=steps, eta_min=0, lora=f"MOSS\\{out}.safetensors", lora_base=out)
 
 
 def download_job():
@@ -345,6 +398,12 @@ def api_state():
     with LOCK:
         st["job"] = dict(STATE)
     st["job"]["samples"] = samples()
+    ln = lora_name()
+    st["lora_out"] = {"name": ln, "exists": lora_exists(ln), "suggest": lora_suggest(ln) if ln else "",
+                      "path": str(lora_dir() / f"{ln}.safetensors") if ln and lora_dir() else ""}
+    if STATE["stage"] == "done" and STATE.get("lora_base"):
+        st["job"]["comfy"] = comfy_sees(STATE["lora_base"])
+        st["job"]["lora_path"] = str(lora_dir() / f"{STATE['lora_base']}.safetensors") if lora_dir() else ""
     cmp = RUNS / PROJECT["trigger"] / "compare.jpg"
     if cmp.exists() and STATE["stage"] == "done":  # 파일 수정 시각으로 — 매번 바뀌면 이미지가 2초마다 다시 로드돼 화면이 흔들림
         st["job"]["compare"] = f"/run/{PROJECT['trigger']}/compare.jpg?{int(cmp.stat().st_mtime)}"
@@ -425,6 +484,8 @@ class H(BaseHTTPRequestHandler):
                 for k in ("mode", "cls"):
                     if k in d:
                         PROJECT[k] = str(d[k]).strip()
+                if "lora" in d:
+                    PROJECT["lora"] = lora_clean(d["lora"])  # empty = use the trigger
                 if "cls" in d:
                     PROJECT.pop("cls_en", None)  # a new description needs a new translation
                 if PROJECT["trigger"]:
@@ -465,7 +526,7 @@ class H(BaseHTTPRequestHandler):
                         f.unlink(missing_ok=True)
                     clear_cache()
                 PROJECT.clear()
-                PROJECT.update({"trigger": "", "mode": "2", "cls": ""})
+                PROJECT.update({"trigger": "", "mode": "2", "cls": "", "lora": ""})
                 set_state(stage="idle", msg="", error="", name="", lora="", step=0, total=0, loss=None, eta_min=None,
                           phase="", cap_done=0, cap_total=0)
                 save_project()
@@ -486,6 +547,9 @@ class H(BaseHTTPRequestHandler):
                     return self.send(409, {"error": "이미 작업 중이에요"})
                 if any(not p["caption"] for p in photos()):
                     return self.send(409, {"error": "캡션이 없는 사진이 있어요. 캡션부터 달아 주세요"})
+                if lora_exists(lora_name()) and not d.get("overwrite"):
+                    return self.send(409, {"error": f"LoRA 폴더에 '{lora_name()}' 파일이 이미 있어요. 파일 이름을 바꾸거나 덮어쓰기를 골라 주세요",
+                                           "exists": lora_name()})
                 job(lambda: train_job(d.get("strength", "normal")))
                 return self.send(200, {"ok": True})
             if u.path == "/api/update":

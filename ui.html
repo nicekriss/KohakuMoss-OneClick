@@ -93,6 +93,8 @@
   .lb .prev { left: 18px; } .lb .next { right: 18px; }
   .err { background: rgba(255,107,107,.12); border: 1px solid var(--bad); color: #ffd0d0; border-radius: 10px; padding: 10px 14px; }
   .note { font-size: 13px; color: var(--dim); }
+  .note.warn { color: var(--warn); }
+  .note .link { padding: 2px 10px; font-size: 13px; margin-left: 6px; }
   code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; font-size: 14px; }
   .result img { width: 100%; border-radius: 10px; margin-top: 12px; }
   details summary { cursor: pointer; color: var(--dim); font-size: 13px; margin-top: 12px; }
@@ -177,6 +179,9 @@
         <div class="mode" data-s="strong"><b>진하게</b><span>더 닮지만 배경·옷까지 외울 수 있어요</span><em class="est"></em></div>
       </div>
       <div id="planbox" class="note" style="margin-top:10px"></div>
+      <label class="f">LoRA 파일 이름 <span style="color:var(--dim)">(비워 두면 트리거 이름 · 영문·숫자·_·-)</span></label>
+      <input type="text" id="loraname" autocomplete="off" style="max-width:360px">
+      <p class="note" id="loranote" style="margin:6px 0 0"></p>
       <div class="row" style="margin-top:14px"><button class="go" id="trainbtn">학습 시작</button><button class="stop" id="stopbtn" hidden>멈추기</button></div>
       <div id="trainprog" style="margin-top:16px"></div>
       <div class="samples" id="samples"></div>
@@ -306,6 +311,15 @@ function renderTrain() {
       <div class="stats"><div><b>${j.step} / ${j.total}</b>스텝</div><div><b>${j.eta_min == null ? '계산 중' : j.eta_min + '분'}</b>남은 시간</div>
       <div><b>${j.loss == null ? '-' : j.loss.toFixed(3)}</b>loss</div><div><b>${esc(j.stage === 'done' ? '끝' : j.stage === 'stopped' ? '멈춤' : j.phase || '')}</b>지금</div></div>`);
   } else put($('#trainprog'), '');
+  const lo = S.lora_out || {};
+  $('#loraname').placeholder = S.project.trigger || '';
+  if (!typing.lora) $('#loraname').value = S.project.lora || '';
+  $('#loraname').disabled = running;
+  const just = j.stage === 'done' && j.lora_base === lo.name;  // the file we just made is not a clash
+  put($('#loranote'), !lo.name ? '' : lo.exists && !just
+    ? `⚠ LoRA 폴더에 <code>${esc(lo.name)}.safetensors</code> 가 이미 있어요. 이대로 학습하면 덮어써요.<button class="link" data-suggest="${esc(lo.suggest)}">새 이름 ${esc(lo.suggest)} 으로</button>`
+    : `컴피 LoRA 폴더에 <code>${esc(lo.path || ('MOSS\\' + lo.name + '.safetensors'))}</code> 로 저장돼요.`);
+  $('#loranote').className = 'note' + (lo.exists && !just ? ' warn' : '');
   const sm = (j.samples || []).slice().reverse();
   const key = sm.map(s => s.url).join('|');
   if ($('#samples').dataset.key !== key) {
@@ -318,9 +332,14 @@ function renderDone() {
   const j = S.job;
   if (j.stage !== 'done') { setCard('#c-done', true, false); put($('#done'), ''); return; }
   setCard('#c-done', false, true);
-  if (!put($('#done'), `<p>컴피 LoRA 목록에서 <code>${esc(j.lora)}</code> 를 고르고, 프롬프트에 <code>${esc(S.project.trigger)}</code> 를 넣으세요.</p>
+  const c = j.comfy;  // null = no ComfyUI running, so nothing to compare against
+  const miss = c && !c.seen ? `<div class="err" style="margin-bottom:12px">⚠ 지금 켜져 있는 컴피(포트 ${c.port})의 LoRA 목록에 이 파일이 안 보여요.
+      컴피가 다른 models 폴더를 쓰고 있을 수 있어요. 1번 칸의 models 폴더를 컴피가 실제로 쓰는 폴더로 바꾸거나, 아래 파일을 그 컴피의 <code>loras</code> 폴더로 옮겨 주세요.
+      (컴피 화면에서 R을 눌러 목록을 새로고침해도 안 보일 때)</div>` : '';
+  if (!put($('#done'), `${miss}<p>컴피 LoRA 목록에서 <code>${esc(j.lora)}</code> 를 고르고, 프롬프트에 <code>${esc(S.project.trigger)}</code> 를 넣으세요.</p>
+    ${j.lora_path ? `<p class="note">저장된 곳: <code>${esc(j.lora_path)}</code></p>` : ''}
     <p class="note">프롬프트가 잘 안 먹으면 LoRA 세기를 0.6~0.8로 낮춰 보세요. 배경·옷까지 너무 따라 나오면 중간 저장본
-      (<code>${esc(S.project.trigger)}-스텝수.safetensors</code>, 숫자가 작을수록 가벼워요)을 골라 보세요. 아래 비교 이미지에서 스텝별 결과를 볼 수 있어요.</p>
+      (<code>${esc(j.lora_base || S.project.trigger)}-스텝수.safetensors</code>, 숫자가 작을수록 가벼워요)을 골라 보세요. 아래 비교 이미지에서 스텝별 결과를 볼 수 있어요.</p>
     <div class="row"><button class="go" id="openl">LoRA 폴더 열기</button><button id="openr">작업 폴더 열기</button></div>
     ${j.compare ? `<img src="${j.compare}" alt="학습 사진과 스텝별 샘플 비교">` : ''}`)) return;
   $('#openl').onclick = () => post('/api/open', {what: 'loras'});
@@ -382,7 +401,7 @@ $('#resetbtn').onclick = async () => {
   try {
     await post('/api/reset', {});
     sel.clear(); typing = {};
-    $('#trigger').value = ''; $('#cls').value = '';
+    $('#trigger').value = ''; $('#cls').value = ''; $('#loraname').value = '';
     $('#trignote').textContent = '새 트리거 단어를 쓰고 Enter를 누르면 시작돼요.';
     showErr('');
   } catch {}
@@ -437,7 +456,28 @@ $('#delall').onclick = () => { if (confirm(`넣은 사진 ${S.photos.length}장�
 $('#capbtn').onclick = () => { showErr(''); post('/api/caption', {}).then(tick); };
 $('#caps').addEventListener('change', e => { if (e.target.matches('textarea')) post('/api/caption_edit', {name: e.target.dataset.name, text: e.target.value}); });
 $('#strength').onclick = e => { const m = e.target.closest('.mode'); if (m) { strength = m.dataset.s; renderTrain(); } };
-$('#trainbtn').onclick = () => { showErr(''); post('/api/train', {strength}).then(tick); };
+const saveLora = debounce(async v => { try { await post('/api/project', {lora: v}); } catch {} delete typing.lora; tick(); }, 400);
+$('#loraname').oninput = e => {
+  typing.lora = 1;
+  e.target.value = e.target.value.replace(/[^A-Za-z0-9_-]/g, '');
+  saveLora(e.target.value);
+};
+$('#loranote').onclick = e => {
+  const b = e.target.closest('[data-suggest]');
+  if (!b) return;
+  $('#loraname').value = b.dataset.suggest; typing.lora = 1; saveLora(b.dataset.suggest);
+};
+$('#trainbtn').onclick = async () => {
+  showErr('');
+  if (typing.lora) await new Promise(r => setTimeout(r, 600));  // let a just-typed name reach the server first
+  const lo = S.lora_out || {};
+  let overwrite = false;
+  if (lo.exists) {
+    overwrite = confirm(`LoRA 폴더에 '${lo.name}.safetensors' 가 이미 있어요.\n\n[확인] 덮어쓰고 학습 (예전 파일과 중간 저장본은 사라져요)\n[취소] 돌아가서 파일 이름 바꾸기`);
+    if (!overwrite) { $('#loraname').focus(); return; }
+  }
+  post('/api/train', {strength, overwrite}).then(tick).catch(() => {});
+};
 $('#stopbtn').onclick = () => { if (confirm('학습을 멈출까요? 지금까지 진행은 사라져요.')) post('/api/stop').then(tick); };
 
 // enlarge: click a sample (or the result image) to see it big; ←/→ steps through the others, Esc or a click closes
