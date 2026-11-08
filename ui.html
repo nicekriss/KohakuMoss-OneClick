@@ -343,7 +343,14 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 const saveCls = debounce(async d => { try { await post('/api/project', d); } catch {} delete typing.cls; tick(); }, 500);
 // trigger = project name: typing never touches the server; it's applied once on Enter / leaving the box,
 // so half-typed words don't open other (empty) projects and the field isn't refilled while you type
-$('#trigger').oninput = e => { typing.trigger = 1; e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''); $('#trignote').textContent = ''; };
+$('#trigger').oninput = e => {
+  typing.trigger = 1;
+  const raw = e.target.value;
+  e.target.value = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Korean input mode silently types nothing here (only a-z 0-9 are kept) — say so instead of looking broken
+  $('#trignote').textContent = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(raw) ? '트리거는 영문·숫자만 돼요. 한/영 키를 눌러 영문으로 바꿔서 써 주세요.'
+    : /[^a-zA-Z0-9]/.test(raw) ? '트리거는 영문 소문자·숫자만 써요(띄어쓰기·기호는 빠져요).' : '';
+};
 $('#trigger').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
 $('#trigger').onchange = async e => {
   const v = e.target.value;
