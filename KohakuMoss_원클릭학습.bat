@@ -13,6 +13,7 @@ if not exist "%KOHAKU%\.venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-"%KOHAKU%\.venv\Scripts\python.exe" "%~dp0app.py"
+rem launcher.py restarts the trainer after an in-app update; keep this file unchanged from here on.
+"%KOHAKU%\.venv\Scripts\python.exe" "%~dp0launcher.py"
 echo.
 pause

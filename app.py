@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 
 import oneclick as oc
 
-PORT = 7865
+PORT = int(os.environ.get("ONECLICK_PORT", "7865"))  # 7865 by default; another port for testing
 HERE = oc.HERE
 RUNS = HERE / "runs"
 LOCK = threading.Lock()
@@ -40,6 +40,60 @@ def trig_clean(t):
 def data_dir(trig=None):
     t = trig or PROJECT["trigger"]
     return RUNS / t / "dataset" / f"1_{t}"
+
+
+# ---------------------------------------------------------------- self update (git)
+UPD = {"checked": 0, "info": None}
+
+
+def git(*args, timeout=30):
+    r = subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def update_info(force=False):
+    """Compare this folder with GitHub. Cached for 10 minutes; a failed check is shown, never fatal."""
+    if not force and UPD["info"] and time.time() - UPD["checked"] < 600:
+        return UPD["info"]
+    info = {"ok": False, "behind": 0, "changes": [], "version": "", "error": ""}
+    try:
+        if not (HERE / ".git").exists():
+            info["error"] = "git clone으로 받은 폴더가 아니라서 자동 업데이트를 못 해요"
+        else:
+            _, info["version"] = git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M")
+            code, out = git("fetch", "--quiet", "origin")
+            if code:
+                info["error"] = "업데이트 확인 실패(인터넷 연결 확인): " + out[-200:]
+            else:
+                _, n = git("rev-list", "--count", "HEAD..@{u}")
+                _, log = git("log", "--format=%s", "HEAD..@{u}")
+                info.update(ok=True, behind=int(n or 0), changes=[x for x in log.splitlines() if x][:10])
+    except Exception as e:  # git missing, timeout...
+        info["error"] = f"업데이트 확인 실패: {e}"
+    UPD.update(checked=time.time(), info=info)
+    return info
+
+
+def apply_update():
+    code, dirty = git("status", "--porcelain", "--untracked-files=no")
+    if dirty:
+        return "학습기 파일을 직접 고친 게 있어서 자동 업데이트를 멈췄어요. 그 파일을 되돌리거나 PowerShell에서 git pull 해 주세요."
+    code, out = git("pull", "--ff-only", timeout=120)
+    if code:
+        return "업데이트 실패: " + out[-300:]
+    UPD["info"] = None
+
+    def restart():
+        time.sleep(1.0)  # let the response reach the page
+        if os.environ.get("ONECLICK_LAUNCHER"):
+            os._exit(3)  # launcher.py starts the new version
+        # started without the launcher (old .bat): open the new version in its own window, then leave
+        subprocess.Popen([sys.executable, str(HERE / "launcher.py"), "--no-browser"], cwd=HERE,
+                         creationflags=subprocess.CREATE_NEW_CONSOLE)
+        os._exit(0)
+    threading.Thread(target=restart, daemon=True).start()
+    return None
 
 
 def photo_count(trig):
@@ -326,6 +380,8 @@ class H(BaseHTTPRequestHandler):
             return self.file(HERE / "icon.png")
         if parts == ["api", "state"]:
             return self.send(200, api_state())
+        if parts == ["api", "update"]:
+            return self.send(200, update_info(force="force" in u.query))
         if parts[0] == "run" and ".." not in parts:
             return self.file(RUNS.joinpath(*parts[1:]))
         if parts[0] == "sample" and ".." not in parts:
@@ -413,6 +469,13 @@ class H(BaseHTTPRequestHandler):
                 if any(not p["caption"] for p in photos()):
                     return self.send(409, {"error": "캡션이 없는 사진이 있어요. 캡션부터 달아 주세요"})
                 job(lambda: train_job(d.get("strength", "normal")))
+                return self.send(200, {"ok": True})
+            if u.path == "/api/update":
+                if busy:
+                    return self.send(409, {"error": "캡션·학습이 끝난 뒤에 업데이트해 주세요"})
+                err = apply_update()
+                if err:
+                    return self.send(409, {"error": err})
                 return self.send(200, {"ok": True})
             if u.path == "/api/stop":
                 stop()

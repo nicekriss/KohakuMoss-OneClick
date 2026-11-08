@@ -26,7 +26,13 @@ cd C:\
 git clone https://github.com/nicekriss/KohakuMoss-OneClick
 ```
 
-업데이트는 `C:\KohakuMoss-OneClick` 폴더에서 `git pull` 한 번이면 됩니다.
+**업데이트:** 새 버전이 나오면 학습기 화면 맨 위에 "새 버전이 있어요"와 **지금 업데이트** 버튼이 떠요. 누르면 알아서 받고 다시 켜져요(넣은 사진·캡션·학습 결과는 그대로).
+2026-11-08 이전에 받은 분은 버튼이 아직 없으니, 학습기 검은 창을 닫고 PowerShell에서 한 번만:
+
+```powershell
+cd C:\KohakuMoss-OneClick
+git pull
+```
 
 ## 쓰는 법
 
