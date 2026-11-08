@@ -12,6 +12,7 @@
     --warn: #ffb547; --bad: #ff6b6b; --ok: #7be38f;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* .upd / .row set display:flex, which would otherwise beat the hidden attribute */
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
   header { position: sticky; top: 0; z-index: 5; background: rgba(13,15,19,.92); backdrop-filter: blur(8px);
            border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; align-items: center; gap: 14px; }
