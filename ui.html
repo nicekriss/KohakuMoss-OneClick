@@ -215,7 +215,8 @@ function renderInfo() {
   $('#clsen').innerHTML = p.cls_en && p.cls_en !== p.cls ? `→ 영어로: <b style="color:var(--text)">${esc(p.cls_en)}</b>`
     : ko ? '→ 캡션 달 때 영어로 옮겨요' : '';
   document.querySelectorAll('.mode').forEach(m => m.classList.toggle('on', m.dataset.m === p.mode));
-  return !!(p.trigger && p.cls);
+  const tv = $('#trigger').value;
+  return !!(p.trigger && tv === p.trigger && p.cls);  // a word still being written (or an empty box) holds the next steps
 }
 
 function renderPhotos() {
@@ -327,7 +328,8 @@ $('#trigger').oninput = e => { typing.trigger = 1; e.target.value = e.target.val
 $('#trigger').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
 $('#trigger').onchange = async e => {
   const v = e.target.value;
-  if (!v) { delete typing.trigger; $('#trignote').textContent = '트리거 단어는 비워 둘 수 없어요. 원래 단어로 돌려놨어요.'; tick(); return; }
+  // an empty box is fine while thinking: keep it empty (no refill), apply only when a new word is entered
+  if (!v) { $('#trignote').textContent = '새 트리거 단어를 쓰고 Enter를 누르면 적용돼요. 그 전까지는 다음 단계가 잠겨요.'; tick(); return; }
   try {
     showErr('');
     await post('/api/project', {trigger: v});
