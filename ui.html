@@ -80,6 +80,15 @@
   .samples { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
   .samples figure { margin: 0; } .samples img { width: 100%; border-radius: 9px; display: block; }
   .samples figcaption { font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .samples img, #done img { cursor: zoom-in; }
+  .lb { position: fixed; inset: 0; z-index: 50; background: rgba(5,6,8,.92); display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 10px; overflow: auto; padding: 24px; cursor: zoom-out; }
+  .lb img { max-width: 92vw; max-height: 84vh; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+  .lb.tall { justify-content: flex-start; } .lb.tall img { max-height: none; }
+  .lb .cap { color: var(--text); font-size: 15px; white-space: nowrap; } .lb .cap span { color: var(--dim); font-size: 13px; margin-left: 10px; }
+  .lb .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 44px; color: var(--text); background: rgba(0,0,0,.4);
+             border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px 10px; cursor: pointer; user-select: none; }
+  .lb .prev { left: 18px; } .lb .next { right: 18px; }
   .err { background: rgba(255,107,107,.12); border: 1px solid var(--bad); color: #ffd0d0; border-radius: 10px; padding: 10px 14px; }
   .note { font-size: 13px; color: var(--dim); }
   code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; font-size: 14px; }
@@ -400,6 +409,32 @@ $('#caps').addEventListener('change', e => { if (e.target.matches('textarea')) p
 $('#strength').onclick = e => { const m = e.target.closest('.mode'); if (m) { strength = m.dataset.s; renderTrain(); } };
 $('#trainbtn').onclick = () => { showErr(''); post('/api/train', {strength}).then(tick); };
 $('#stopbtn').onclick = () => { if (confirm('학습을 멈출까요? 지금까지 진행은 사라져요.')) post('/api/stop').then(tick); };
+
+// enlarge: click a sample (or the result image) to see it big; ←/→ steps through the others, Esc or a click closes
+const lb = {el: null, list: [], i: 0};
+function lbShow() {
+  const img = lb.list[lb.i];
+  const cap = img.closest('figure') ? img.closest('figure').querySelector('figcaption').textContent : (img.alt || '');
+  const many = lb.list.length > 1;
+  lb.el.innerHTML = `<img src="${img.src}"><div class="cap">${esc(cap)}${many ? `<span>${lb.i + 1} / ${lb.list.length} · ← → 로 넘기기 · Esc 닫기</span>` : '<span>Esc 닫기</span>'}</div>` +
+    (many ? '<div class="nav prev" data-d="-1">‹</div><div class="nav next" data-d="1">›</div>' : '');
+  const big = lb.el.querySelector('img');
+  const fit = () => lb.el.classList.toggle('tall', big.naturalHeight > big.naturalWidth * 2);  // tall comparison sheet: scroll instead of shrinking
+  big.complete ? fit() : big.onload = fit;
+}
+function lbOpen(container, img) {
+  lb.list = [...container.querySelectorAll('img')]; lb.i = Math.max(0, lb.list.indexOf(img));
+  lb.el = document.createElement('div'); lb.el.className = 'lb';
+  lb.el.onclick = e => { const d = e.target.dataset.d; if (d) { lbStep(+d); e.stopPropagation(); } else lbClose(); };
+  document.body.appendChild(lb.el); document.body.style.overflow = 'hidden'; lbShow();
+}
+function lbStep(d) { lb.i = (lb.i + d + lb.list.length) % lb.list.length; lbShow(); }
+function lbClose() { if (lb.el) { lb.el.remove(); lb.el = null; document.body.style.overflow = ''; } }
+document.addEventListener('keydown', e => {
+  if (!lb.el) return;
+  if (e.key === 'Escape') lbClose(); else if (e.key === 'ArrowLeft') lbStep(-1); else if (e.key === 'ArrowRight') lbStep(1);
+});
+['#samples', '#done'].forEach(id => $(id).addEventListener('click', e => { if (e.target.tagName === 'IMG') lbOpen($(id), e.target); }));
 
 // update (git pull + restart, from the page)
 async function checkUpdate(force) {
