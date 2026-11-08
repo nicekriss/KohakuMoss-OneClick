@@ -453,6 +453,23 @@ class H(BaseHTTPRequestHandler):
                 if names:
                     clear_cache()
                 return self.send(200, {"ok": True, "removed": len(names)})
+            if u.path == "/api/reset":
+                # "새로 시작": empty the current project (photos + captions) and the trigger / description.
+                # Finished LoRA files in models\loras\MOSS are never touched.
+                if busy:
+                    return self.send(409, {"error": "캡션·학습 중에는 초기화할 수 없어요. 먼저 멈춰 주세요"})
+                n = 0
+                if PROJECT["trigger"] and data_dir().is_dir():
+                    for f in list(data_dir().glob("*.jpg")) + list(data_dir().glob("*.txt")):
+                        n += f.suffix == ".jpg"
+                        f.unlink(missing_ok=True)
+                    clear_cache()
+                PROJECT.clear()
+                PROJECT.update({"trigger": "", "mode": "2", "cls": ""})
+                set_state(stage="idle", msg="", error="", name="", lora="", step=0, total=0, loss=None, eta_min=None,
+                          phase="", cap_done=0, cap_total=0)
+                save_project()
+                return self.send(200, {"ok": True, "removed": n})
             if u.path == "/api/caption":
                 d = json.loads(self.body())
                 if busy or len(photos()) < 5 or not PROJECT["cls"]:

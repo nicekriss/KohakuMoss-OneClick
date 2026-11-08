@@ -49,6 +49,8 @@ git pull
 | 5 학습 | **학습 세기**(가볍게 / 기본 / 진하게)를 고르고 시작. 스텝은 사진 수에 맞춰 자동이에요. 진행률·남은 시간·중간 샘플이 화면에 보여요. |
 | 6 완료 | ComfyUI LoRA 목록의 `MOSS\<트리거>.safetensors`로 들어가요. 폴더 열기 버튼과 스텝별 비교 이미지가 나와요. |
 
+다른 걸 처음부터 학습하려면 2번 칸 오른쪽 위 **새로 시작**을 누르세요. 넣은 사진·캡션·트리거·설명이 모두 비워져요. 다 만든 LoRA 파일은 그대로 남아요.
+
 <p>
 <img src="docs/1_setup.jpg" width="32%"> <img src="docs/2_captions.jpg" width="32%"> <img src="docs/3_training.jpg" width="32%">
 </p>

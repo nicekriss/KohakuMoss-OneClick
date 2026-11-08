@@ -21,6 +21,8 @@
   header h1 b { color: var(--lime); }
   .pill { margin-left: auto; padding: 4px 12px; border-radius: 99px; background: var(--panel2); color: var(--dim); font-size: 13px; }
   .pill.run { background: var(--lime); color: var(--lime-ink); font-weight: 700; }
+  .card h2 .reset { margin-left: auto; padding: 4px 12px; font-size: 13px; font-weight: 400; color: var(--dim); }
+  .card h2 .reset:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
   .ver { font-size: 12px; color: var(--dim); white-space: nowrap; }
   .upd { display: flex; gap: 16px; align-items: center; justify-content: space-between; background: var(--panel); border: 1px solid var(--lime);
          border-radius: 14px; padding: 14px 20px; margin-bottom: 16px; }
@@ -113,7 +115,7 @@
   </section>
 
   <section class="card" id="c-info">
-    <h2><span class="num">2</span>무엇을 학습할까요</h2>
+    <h2><span class="num">2</span>무엇을 학습할까요<button class="reset" id="resetbtn" title="넣은 사진·캡션·트리거·설명을 모두 비우고 처음부터">새로 시작</button></h2>
     <p class="sub">트리거 단어는 컴피 프롬프트에 넣어 이 LoRA를 부르는 이름이에요.</p>
     <div class="body">
       <label class="f">트리거 단어 (영문 소문자·숫자)</label>
@@ -239,6 +241,7 @@ function renderInfo() {
   $('#clsen').innerHTML = p.cls_en && p.cls_en !== p.cls ? `→ 영어로: <b style="color:var(--text)">${esc(p.cls_en)}</b>`
     : ko ? '→ 캡션 달 때 영어로 옮겨요' : '';
   document.querySelectorAll('.mode').forEach(m => m.classList.toggle('on', m.dataset.m === p.mode));
+  $('#resetbtn').disabled = ['captioning', 'training'].includes(S.job.stage);
   const tv = $('#trigger').value;
   return !!(p.trigger && tv === p.trigger && p.cls);  // a word still being written (or an empty box) holds the next steps
 }
@@ -370,6 +373,21 @@ $('#trigger').onchange = async e => {
 };
 $('#cls').oninput = e => { typing.cls = 1; saveCls({cls: e.target.value}); };
 document.querySelectorAll('.chip[data-ex]').forEach(c => c.onclick = () => { $('#cls').value = c.dataset.ex; typing.cls = 1; saveCls({cls: c.dataset.ex}); });
+$('#resetbtn').onclick = async () => {
+  const n = S.photos.length;
+  if (!confirm(`처음부터 새로 시작할까요?
+
+넣은 사진 ${n}장과 캡션, 트리거 단어, 설명이 모두 비워져요.
+(다 만든 LoRA 파일은 그대로 남아요)`)) return;
+  try {
+    await post('/api/reset', {});
+    sel.clear(); typing = {};
+    $('#trigger').value = ''; $('#cls').value = '';
+    $('#trignote').textContent = '새 트리거 단어를 쓰고 Enter를 누르면 시작돼요.';
+    showErr('');
+  } catch {}
+  tick();
+};
 $('#modes').onclick = e => { const m = e.target.closest('.mode'); if (m) post('/api/project', {mode: m.dataset.m}).then(tick); };
 
 // photos
