@@ -54,6 +54,13 @@
   .ph { position: relative; aspect-ratio: 3/4; border-radius: 9px; overflow: hidden; background: var(--bg); }
   .ph img { width: 100%; height: 100%; object-fit: cover; }
   .ph button { position: absolute; top: 4px; right: 4px; padding: 0 7px; border-radius: 7px; background: rgba(0,0,0,.6); font-size: 13px; }
+  .ph { cursor: pointer; outline: 3px solid transparent; outline-offset: -3px; }
+  .ph.sel { outline-color: var(--lime); }
+  .ph.sel img { opacity: .55; }
+  .ph .tick { display: none; position: absolute; left: 6px; top: 6px; width: 22px; height: 22px; border-radius: 50%; background: var(--lime);
+              color: var(--lime-ink); font-style: normal; font-weight: 800; font-size: 13px; text-align: center; line-height: 22px; }
+  .ph.sel .tick { display: block; }
+  .photobar { margin-top: 10px; }
   .count { font-size: 13px; margin-top: 8px; } .count.ok { color: var(--ok); } .count.warn { color: var(--warn); }
   .caps { display: grid; gap: 10px; margin-top: 14px; }
   .cap { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: start; }
@@ -92,6 +99,7 @@
     <div class="body">
       <label class="f">트리거 단어 (영문 소문자·숫자)</label>
       <input type="text" id="trigger" placeholder="예: bzsuit" autocomplete="off">
+      <p class="note" id="trignote" style="margin:6px 0 0">다 쓰고 Enter를 누르거나 다른 칸을 누르면 적용돼요.</p>
       <label class="f">종류</label>
       <div class="modes" id="modes">
         <div class="mode" data-m="1"><b>사람</b><span>얼굴만 고정. 옷·배경은 프롬프트로 바뀌어요</span></div>
@@ -117,6 +125,12 @@
       <div class="drop" id="drop">여기로 사진이나 폴더를 끌어다 놓거나 <u>눌러서 고르세요</u></div>
       <input type="file" id="pick" accept="image/*" multiple hidden>
       <div class="count" id="count"></div>
+      <div class="row photobar" id="photobar" hidden>
+        <span class="note" id="selhint">사진을 누르면 여러 장 고를 수 있어요</span>
+        <button class="stop" id="delsel" hidden>선택한 사진 빼기</button>
+        <button id="unsel" hidden>선택 해제</button>
+        <button id="delall">모두 빼기</button>
+      </div>
       <div class="grid" id="grid"></div>
     </div>
   </section>
@@ -157,6 +171,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let S = null, typing = {}, uploading = 0, strength = 'normal';
+const sel = new Set();  // photos picked for "선택한 사진 빼기"
 
 async function post(url, data, raw) {
   const r = await fetch(url, {method: 'POST', body: raw ? data : JSON.stringify(data || {})});
@@ -209,12 +224,22 @@ function renderPhotos() {
   $('#count').className = 'count ' + (n >= 15 ? 'ok' : n >= 5 ? 'warn' : '');
   $('#count').textContent = (uploading ? `올리는 중… ${uploading}장 남음 · ` : '') +
     (n ? `${n}장` + (n < 5 ? ' — 최소 5장이 필요해요' : n < 15 ? ' — 15장 이상이면 더 좋아요' : '') : '');
-  const key = ph.map(p => p.name).join('|');
+  const key = ph.map(p => p.url).join('|');  // url carries the trigger, so a renamed project redraws with new paths
   if ($('#grid').dataset.key !== key) {
     $('#grid').dataset.key = key;
-    $('#grid').innerHTML = ph.map(p => `<div class="ph"><img src="${p.url}" loading="lazy"><button data-del="${esc(p.name)}" title="빼기">×</button></div>`).join('');
+    for (const s of [...sel]) if (!ph.some(p => p.name === s)) sel.delete(s);
+    $('#grid').innerHTML = ph.map(p => `<div class="ph${sel.has(p.name) ? ' sel' : ''}" data-name="${esc(p.name)}"><img src="${p.url}" loading="lazy"><i class="tick">✓</i><button data-del="${esc(p.name)}" title="이 사진 빼기">×</button></div>`).join('');
   }
+  renderPhotoBar(n);
   return n >= 5;
+}
+
+function renderPhotoBar(n) {
+  $('#photobar').hidden = !n;
+  $('#delsel').hidden = !sel.size;
+  $('#delsel').textContent = `선택한 ${sel.size}장 빼기`;
+  $('#unsel').hidden = !sel.size;
+  $('#selhint').hidden = !!sel.size;
 }
 
 function renderCaps() {
@@ -295,10 +320,23 @@ async function tick() {
 
 // inputs
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-const saveProject = debounce(async d => { await post('/api/project', d); typing = {}; tick(); }, 500);
-$('#trigger').oninput = e => { typing.trigger = 1; e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''); saveProject({trigger: e.target.value}); };
-$('#cls').oninput = e => { typing.cls = 1; saveProject({cls: e.target.value}); };
-document.querySelectorAll('.chip[data-ex]').forEach(c => c.onclick = () => { $('#cls').value = c.dataset.ex; saveProject({cls: c.dataset.ex}); });
+const saveCls = debounce(async d => { try { await post('/api/project', d); } catch {} delete typing.cls; tick(); }, 500);
+// trigger = project name: typing never touches the server; it's applied once on Enter / leaving the box,
+// so half-typed words don't open other (empty) projects and the field isn't refilled while you type
+$('#trigger').oninput = e => { typing.trigger = 1; e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''); $('#trignote').textContent = ''; };
+$('#trigger').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
+$('#trigger').onchange = async e => {
+  const v = e.target.value;
+  if (!v) { delete typing.trigger; $('#trignote').textContent = '트리거 단어는 비워 둘 수 없어요. 원래 단어로 돌려놨어요.'; tick(); return; }
+  try {
+    showErr('');
+    await post('/api/project', {trigger: v});
+    $('#trignote').textContent = S && S.photos.length ? `트리거를 '${v}'(으)로 바꿨어요. 넣은 사진과 캡션은 그대로 따라와요.` : '';
+  } catch {}
+  delete typing.trigger; tick();
+};
+$('#cls').oninput = e => { typing.cls = 1; saveCls({cls: e.target.value}); };
+document.querySelectorAll('.chip[data-ex]').forEach(c => c.onclick = () => { $('#cls').value = c.dataset.ex; typing.cls = 1; saveCls({cls: c.dataset.ex}); });
 $('#modes').onclick = e => { const m = e.target.closest('.mode'); if (m) post('/api/project', {mode: m.dataset.m}).then(tick); };
 
 // photos
@@ -330,7 +368,19 @@ $('#pick').onchange = e => upload(e.target.files);
 drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
 drop.ondrop = async e => { e.preventDefault(); drop.classList.remove('over'); upload(await filesFromDrop(e.dataTransfer.items)); };
-$('#grid').onclick = e => { const n = e.target.dataset.del; if (n) post('/api/photo_delete', {name: n}).then(tick); };
+$('#grid').onclick = e => {
+  const n = e.target.dataset.del;
+  if (n) { sel.delete(n); post('/api/photo_delete', {name: n}).then(tick).catch(() => {}); return; }
+  const ph = e.target.closest('.ph');
+  if (!ph) return;
+  const name = ph.dataset.name;
+  sel.has(name) ? sel.delete(name) : sel.add(name);
+  ph.classList.toggle('sel', sel.has(name));
+  renderPhotoBar(S.photos.length);
+};
+$('#delsel').onclick = () => { const names = [...sel]; sel.clear(); post('/api/photo_delete', {names}).then(tick).catch(() => {}); };
+$('#unsel').onclick = () => { sel.clear(); document.querySelectorAll('.ph.sel').forEach(p => p.classList.remove('sel')); renderPhotoBar(S.photos.length); };
+$('#delall').onclick = () => { if (confirm(`넣은 사진 ${S.photos.length}장을 모두 뺄까요? (캡션도 같이 지워져요)`)) { sel.clear(); post('/api/photo_delete', {all: true}).then(tick).catch(() => {}); } };
 
 // captions / training
 $('#capbtn').onclick = () => { showErr(''); post('/api/caption', {}).then(tick); };

@@ -42,6 +42,44 @@ def data_dir(trig=None):
     return RUNS / t / "dataset" / f"1_{t}"
 
 
+def photo_count(trig):
+    d = data_dir(trig)
+    return len(list(d.glob("*.jpg"))) if trig and d.is_dir() else 0
+
+
+def change_trigger(new):
+    """Trigger = project name. Changing it renames the current project (photos and captions come along)
+    instead of silently switching to an empty folder. An existing project with photos under the new name is opened
+    only when the current one is empty; otherwise it's a conflict the user has to resolve."""
+    old = PROJECT["trigger"]
+    if new == old:
+        return None
+    if photo_count(new):
+        if photo_count(old):
+            return f"'{new}' 이름의 학습 폴더(runs\\{new})에 이미 사진이 있어요. 다른 단어를 쓰거나, 사진을 모두 뺀 뒤에 바꿔 주세요."
+        PROJECT["trigger"] = new  # current project is empty: just open the existing one
+        return None
+    src, dst = RUNS / old, RUNS / new
+    if old and src.is_dir():
+        if dst.exists():
+            shutil.rmtree(dst)  # holds no photos (checked above): leftovers of an earlier empty project
+        src.rename(dst)
+        old_data = dst / "dataset" / f"1_{old}"
+        if old_data.is_dir():
+            old_data.rename(dst / "dataset" / f"1_{new}")
+        shutil.rmtree(dst / "dataset" / "cache", ignore_errors=True)  # latent/text cache is keyed to the old paths
+        for cap in data_dir(new).glob("*.txt"):
+            t = cap.read_text(encoding="utf-8")
+            if t.startswith(old + ","):
+                cap.write_text(new + t[len(old):], encoding="utf-8")
+    PROJECT["trigger"] = new
+    return None
+
+
+def clear_cache():
+    shutil.rmtree(data_dir().parent / "cache", ignore_errors=True)
+
+
 def photos():
     d = data_dir()
     if not PROJECT["trigger"] or not d.is_dir():
@@ -320,8 +358,12 @@ class H(BaseHTTPRequestHandler):
                 if busy:
                     return self.send(409, {"error": "작업 중에는 바꿀 수 없어요"})
                 t = trig_clean(d.get("trigger"))
+                if "trigger" in d and not t:
+                    return self.send(400, {"error": "트리거 단어는 비워 둘 수 없어요", "trigger": PROJECT["trigger"]})
                 if t and t != PROJECT["trigger"]:
-                    PROJECT["trigger"] = t
+                    err = change_trigger(t)
+                    if err:
+                        return self.send(409, {"error": err, "trigger": PROJECT["trigger"]})
                     set_state(stage="idle", error="", name="", lora="")
                 for k in ("mode", "cls"):
                     if k in d:
@@ -343,9 +385,17 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, {"ok": True})
             if u.path == "/api/photo_delete":
                 d = json.loads(self.body())
-                for ext in (".jpg", ".txt"):
-                    (data_dir() / (Path(d["name"]).stem + ext)).unlink(missing_ok=True)
-                return self.send(200, {"ok": True})
+                if busy or not PROJECT["trigger"]:
+                    return self.send(409, {"error": "작업 중에는 사진을 뺄 수 없어요"})
+                names = d.get("names") or ([d["name"]] if d.get("name") else [])
+                if d.get("all"):
+                    names = [p.name for p in data_dir().glob("*.jpg")]
+                for n in names:
+                    for ext in (".jpg", ".txt"):
+                        (data_dir() / (Path(n).stem + ext)).unlink(missing_ok=True)
+                if names:
+                    clear_cache()
+                return self.send(200, {"ok": True, "removed": len(names)})
             if u.path == "/api/caption":
                 d = json.loads(self.body())
                 if busy or len(photos()) < 5 or not PROJECT["cls"]:
