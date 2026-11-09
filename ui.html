@@ -420,6 +420,8 @@ async function upload(files) {
   tick();
 }
 async function filesFromDrop(items) {
+  // items is emptied by the browser after the first await, so take every entry out before reading any
+  const entries = [...items].map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
   const out = [];
   async function walk(entry) {
     if (entry.isFile) out.push(await new Promise(r => entry.file(r)));
@@ -429,7 +431,7 @@ async function filesFromDrop(items) {
       do { batch = await new Promise(r => rd.readEntries(r)); for (const e of batch) await walk(e); } while (batch.length);
     }
   }
-  for (const it of items) { const e = it.webkitGetAsEntry && it.webkitGetAsEntry(); if (e) await walk(e); }
+  for (const e of entries) await walk(e);
   return out;
 }
 const drop = $('#drop');
