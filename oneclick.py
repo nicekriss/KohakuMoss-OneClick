@@ -313,7 +313,7 @@ def main():
         a.mode = ask(" 번호: ")
     while not a.cls:
         a.cls = ask("\n 무엇인지 짧게 영어로 (예: a young Korean man): ")
-    print("\n 캡션 - 학습 - 컴피 등록까지 " + ("1~2시간" if a.mode == "3" else "40분~1시간") + "쯤 걸려요. 창을 닫지 마세요.\n")
+    print("\n 캡션 - 학습 - 컴피 등록까지 " + ("1~2시간 반" if a.mode == "1" else "1~2시간" if a.mode == "3" else "40분~1시간") + "쯤 걸려요. 창을 닫지 마세요.\n")
 
     trig = re.sub(r"[^a-z0-9]", "", a.trigger.lower())
     work = HERE / "runs" / trig
@@ -354,12 +354,16 @@ def main():
     log(f"캡션 {len(imgs)}장 완료 (예: {lines[0][:120]})", logf)
 
     # 3. config — ~80 passes per photo; sample/save every fifth
-    # modes 1/2 train at 768px with rank 8 (same costume quality as 1024/r32 in our test, about half the time, 47 MB files);
-    # a 768px step packs ~4.6 images. Mode 3 (face crops) keeps 1024/r32: ~2 images per step.
+    # mode 2 trains at 768px with rank 8 (same costume quality as 1024/r32 in our test, about half the time, 47 MB files);
+    # a 768px step packs ~4.6 images. Modes 1 and 3 use 1024/r32: ~2 images per step (768/r8 lost on face likeness, 2026-11-10).
     if a.mode == "3":
         # face crops: ~22 passes per crop at ~2 images a step (k40face: 46 crops -> 500 steps was the best checkpoint)
         steps = a.steps or max(300, round(max(600, min(1400, len(imgs) * 22)) / 2 / 50) * 50)
         every = max(50, round(steps / 5 / 50) * 50)
+        extra = ()
+    elif a.mode == "1":
+        steps = a.steps or round(max(600, min(1800, len(imgs) * 80)) / 2 / 10) * 10
+        every = max(20, round(steps / 5 / 10) * 10)
         extra = ()
     else:
         steps = a.steps or round(max(600, min(1800, len(imgs) * 80)) / 4.6 / 10) * 10

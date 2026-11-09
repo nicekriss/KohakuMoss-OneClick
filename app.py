@@ -22,7 +22,7 @@ STATE = {"stage": "idle", "msg": "", "error": "", "cap_done": 0, "cap_total": 0,
          "eta_min": None, "phase": "", "name": "", "lora": "", "lora_base": "", "download": ""}
 PROJECT = {"trigger": "", "mode": "2", "cls": ""}
 PROC = {"p": None, "stop": False}
-MODE_SEC = {"768": 7.1, "1024": 6.7}  # seconds per step on an RTX 3090 (10-26 measurements)
+MODE_SEC = {"768": 7.1, "1024": 8.6}  # seconds per step on an RTX 3090 (768: 10-26, 1024: 2026-11-10 full run of 680 steps)
 
 
 def settings():
@@ -208,6 +208,11 @@ def plan(n, mode, strength="normal"):
         # face crops: ~22 passes per crop at ~2 images a step (k40face: 46 crops -> 500 steps was the best checkpoint)
         steps = max(150, round(max(600, min(1400, n * 22)) * f / 2 / 50) * 50)
         every = max(50, round(steps / 5 / 50) * 50)
+        return steps, every, (), round(steps * MODE_SEC["1024"] / 60 + 5 * 2 + 6), "1024px · rank 32"
+    if mode == "1":
+        # people: 1024px/rank 32, ~80 passes per photo at ~2 images a step (768/r8 lost on face likeness, 2026-11-10)
+        steps = max(100, round(max(600, min(1800, n * 80)) * f / 2 / 10) * 10)
+        every = max(20, round(steps / 5 / 10) * 10)
         return steps, every, (), round(steps * MODE_SEC["1024"] / 60 + 5 * 2 + 6), "1024px · rank 32"
     steps = max(100, round(max(600, min(1800, n * 80)) * f / 4.6 / 10) * 10)
     every = max(20, round(steps / 5 / 10) * 10)
