@@ -64,6 +64,7 @@
   .ph button { position: absolute; top: 4px; right: 4px; padding: 0 7px; border-radius: 7px; background: rgba(0,0,0,.6); font-size: 13px; }
   .ph { cursor: pointer; outline: 3px solid transparent; outline-offset: -3px; }
   .ph.sel { outline-color: var(--lime); }
+  .ph.noface { outline-color: #ff6b6b; }
   .ph.sel img { opacity: .55; }
   .ph .tick { display: none; position: absolute; left: 6px; top: 6px; width: 22px; height: 22px; border-radius: 50%; background: var(--lime);
               color: var(--lime-ink); font-style: normal; font-weight: 800; font-size: 13px; text-align: center; line-height: 22px; }
@@ -127,7 +128,7 @@
       <div class="modes" id="modes">
         <div class="mode" data-m="1"><b>사람</b><span>얼굴만 고정. 옷·배경은 프롬프트로 바뀌어요</span></div>
         <div class="mode" data-m="2"><b>캐릭터 · 의상</b><span>의상·겉모습까지 통째로 고정해요</span></div>
-        <div class="mode" data-m="3"><b>얼굴 (디테일러용)</b><span>얼굴만 잘라 둔 사진을 넣어요</span></div>
+        <div class="mode" data-m="3"><b>얼굴 (디테일러용)</b><span>얼굴이 잘 보이는 사진을 넣어요. 얼굴만 자동으로 잘라 줘요</span></div>
       </div>
       <label class="f">무엇인지 짧게 (한글로 써도 캡션 단계에서 영어로 옮겨요)</label>
       <input type="text" id="cls" placeholder="예: 초록 메뚜기 인형옷을 입은 남자" autocomplete="off">
@@ -148,6 +149,7 @@
       <div class="drop" id="drop">여기로 사진이나 폴더를 끌어다 놓거나 <u>눌러서 고르세요</u></div>
       <input type="file" id="pick" accept="image/*" multiple hidden>
       <div class="count" id="count"></div>
+      <div class="row" id="cropbar" style="margin-top:10px" hidden><button class="go" id="cropbtn">얼굴 자동 자르기</button><span class="note" id="cropnote"></span><button id="dropfail" hidden></button></div>
       <div class="row photobar" id="photobar" hidden>
         <span class="note" id="selhint">사진을 누르면 여러 장 고를 수 있어요</span>
         <button class="stop" id="delsel" hidden>선택한 사진 빼기</button>
@@ -246,7 +248,7 @@ function renderInfo() {
   $('#clsen').innerHTML = p.cls_en && p.cls_en !== p.cls ? `→ 영어로: <b style="color:var(--text)">${esc(p.cls_en)}</b>`
     : ko ? '→ 캡션 달 때 영어로 옮겨요' : '';
   document.querySelectorAll('.mode').forEach(m => m.classList.toggle('on', m.dataset.m === p.mode));
-  $('#resetbtn').disabled = ['captioning', 'training'].includes(S.job.stage);
+  $('#resetbtn').disabled = ['captioning', 'training', 'cropping'].includes(S.job.stage);
   const tv = $('#trigger').value;
   return !!(p.trigger && tv === p.trigger && p.cls);  // a word still being written (or an empty box) holds the next steps
 }
@@ -256,15 +258,25 @@ function renderPhotos() {
   const n = ph.length;
   const face = S.project.mode === '3';
   const enough = face ? 9 : 15;
-  $('#photohint').textContent = face ? '얼굴만 잘라 둔 사진 10장 안팎이면 돼요. 표정·각도·조명이 다른 사진이 좋아요.' : '장소·옷·각도·조명이 다른 사진 15~30장이 좋아요. 같은 날 같은 장소 사진만 많으면 배경까지 외워요.';
+  $('#photohint').textContent = face ? '얼굴이 잘 보이는 사진 10장 안팎이면 돼요. 표정·각도·조명이 다르면 더 좋아요. 넣은 뒤 얼굴 자동 자르기를 눌러 주세요.' : '장소·옷·각도·조명이 다른 사진 15~30장이 좋아요. 같은 날 같은 장소 사진만 많으면 배경까지 외워요.';
   $('#count').className = 'count ' + (n >= enough ? 'ok' : n >= 5 ? 'warn' : '');
   $('#count').textContent = (uploading ? `올리는 중… ${uploading}장 남음 · ` : '') +
     (n ? `${n}장` + (n < 5 ? ' — 최소 5장이 필요해요' : n < enough ? (face ? ' — 10장 안팎이면 더 좋아요' : ' — 15장 이상이면 더 좋아요') : '') : '');
-  const key = ph.map(p => p.url).join('|');  // url carries the trigger, so a renamed project redraws with new paths
+  const crop = S.job.crop, have = new Set(ph.map(p => p.name));
+  const fail = (crop && crop.fail || []).filter(x => have.has(x)), small = (crop && crop.small || []).filter(x => have.has(x));
+  const cropping = S.job.stage === 'cropping';
+  $('#cropbar').hidden = !face || !n;
+  $('#cropbtn').disabled = ['cropping', 'captioning', 'training'].includes(S.job.stage);
+  $('#cropnote').textContent = cropping ? (S.job.msg || `얼굴 찾는 중… ${S.job.crop_done} / ${S.job.crop_total}장`)
+    : crop ? `${crop.ok}장을 얼굴로 잘랐어요` + (small.length ? ` · 얼굴이 작은 사진 ${small.length}장은 화질이 떨어질 수 있어요` : '') + (fail.length ? ` · 빨간 테두리 ${fail.length}장은 얼굴을 못 찾았어요` : '') : '';
+  $('#dropfail').hidden = !fail.length;
+  $('#dropfail').textContent = `못 찾은 ${fail.length}장 빼기`;
+  $('#dropfail').dataset.names = JSON.stringify(fail);
+  const key = ph.map(p => p.url).join('|') + '#' + fail.join('|');  // url carries the trigger, so a renamed project redraws with new paths
   if ($('#grid').dataset.key !== key) {
     $('#grid').dataset.key = key;
     for (const s of [...sel]) if (!ph.some(p => p.name === s)) sel.delete(s);
-    $('#grid').innerHTML = ph.map(p => `<div class="ph${sel.has(p.name) ? ' sel' : ''}" data-name="${esc(p.name)}"><img src="${p.url}" loading="lazy"><i class="tick">✓</i><button data-del="${esc(p.name)}" title="이 사진 빼기">×</button></div>`).join('');
+    $('#grid').innerHTML = ph.map(p => `<div class="ph${sel.has(p.name) ? ' sel' : ''}${fail.includes(p.name) ? ' noface' : ''}" data-name="${esc(p.name)}"><img src="${p.url}" loading="lazy"><i class="tick">✓</i><button data-del="${esc(p.name)}" title="이 사진 빼기">×</button></div>`).join('');
   }
   renderPhotoBar(n);
   return n >= 5;
@@ -281,7 +293,7 @@ function renderPhotoBar(n) {
 function renderCaps() {
   const j = S.job, ph = S.photos;
   const busy = j.stage === 'captioning';
-  $('#capbtn').disabled = busy || j.stage === 'training';
+  $('#capbtn').disabled = busy || j.stage === 'training' || j.stage === 'cropping';
   $('#capbtn').textContent = ph.some(p => p.caption) ? '캡션 다시 달기' : '캡션 달기';
   $('#capnote').textContent = busy ? j.msg : (S.lmstudio ? 'LM 스튜디오로 달아요' : '처음엔 캡션 모델(약 4GB)을 받느라 몇 분 더 걸려요');
   put($('#capprog'), busy ? `<div class="bar"><i style="width:${j.cap_total ? 100 * j.cap_done / j.cap_total : 3}%"></i></div>
@@ -307,7 +319,7 @@ function renderTrain() {
   document.querySelector('#strength').style.pointerEvents = j.stage === 'training' ? 'none' : '';
   const running = j.stage === 'training';
   $('#trainbtn').hidden = running; $('#stopbtn').hidden = !running;
-  $('#trainbtn').disabled = j.stage === 'captioning';
+  $('#trainbtn').disabled = j.stage === 'captioning' || j.stage === 'cropping';
   if (running || (j.stage === 'done' || j.stage === 'stopped' || j.stage === 'error') && j.total) {
     const pct = j.total ? Math.round(100 * j.step / j.total) : 0;
     put($('#trainprog'), `<div class="big">${pct}%</div><div class="bar" style="margin:8px 0"><i style="width:${pct}%"></i></div>
@@ -352,9 +364,9 @@ function renderDone() {
 async function tick() {
   try { S = await (await fetch('/api/state')).json(); } catch { $('#pill').textContent = '연결 끊김 — 학습기 창이 켜져 있는지 확인'; return; }
   const j = S.job;
-  $('#pill').className = 'pill' + (['captioning', 'training'].includes(j.stage) ? ' run' : '');
-  $('#pill').textContent = {idle: '준비', captioning: '캡션 다는 중', captioned: '캡션 완료', training: '학습 중', done: '완료', stopped: '멈춤', error: '오류'}[j.stage] || j.stage;
-  if (j.error) showErr(j.error); else if ($('#error').innerHTML && !j.error && ['captioning', 'training'].includes(j.stage)) showErr('');
+  $('#pill').className = 'pill' + (['captioning', 'training', 'cropping'].includes(j.stage) ? ' run' : '');
+  $('#pill').textContent = {idle: '준비', cropping: '얼굴 자르는 중', cropped: '얼굴 자르기 완료', captioning: '캡션 다는 중', captioned: '캡션 완료', training: '학습 중', done: '완료', stopped: '멈춤', error: '오류'}[j.stage] || j.stage;
+  if (j.error) showErr(j.error); else if ($('#error').innerHTML && !j.error && ['captioning', 'training', 'cropping'].includes(j.stage)) showErr('');
   const ready = renderSetup();
   setCard('#c-setup', false, ready);
   const infoOk = renderInfo();
@@ -453,6 +465,11 @@ $('#grid').onclick = e => {
   ph.classList.toggle('sel', sel.has(name));
   renderPhotoBar(S.photos.length);
 };
+$('#cropbtn').onclick = () => {
+  if (S.photos.some(p => p.caption) && !confirm('이미 달아 둔 캡션은 지워져요. 얼굴을 자른 뒤 캡션을 다시 달아 주세요. 계속할까요?')) return;
+  showErr(''); post('/api/crop', {}).then(tick).catch(() => {});
+};
+$('#dropfail').onclick = e => { post('/api/photo_delete', {names: JSON.parse(e.target.dataset.names)}).then(tick).catch(() => {}); };
 $('#delsel').onclick = () => { const names = [...sel]; sel.clear(); post('/api/photo_delete', {names}).then(tick).catch(() => {}); };
 $('#unsel').onclick = () => { sel.clear(); document.querySelectorAll('.ph.sel').forEach(p => p.classList.remove('sel')); renderPhotoBar(S.photos.length); };
 $('#delall').onclick = () => { if (confirm(`넣은 사진 ${S.photos.length}장을 모두 뺄까요? (캡션도 같이 지워져요)`)) { sel.clear(); post('/api/photo_delete', {all: true}).then(tick).catch(() => {}); } };
@@ -523,7 +540,7 @@ async function checkUpdate(force) {
   }
 }
 $('#updbtn').onclick = async () => {
-  if (S && ['captioning', 'training'].includes(S.job.stage)) { showErr('캡션·학습이 끝난 뒤에 업데이트해 주세요'); return; }
+  if (S && ['captioning', 'training', 'cropping'].includes(S.job.stage)) { showErr('캡션·학습이 끝난 뒤에 업데이트해 주세요'); return; }
   if (!confirm('새 버전으로 업데이트하고 학습기를 다시 켤까요? 넣은 사진·캡션·학습 결과는 그대로예요.')) return;
   $('#updbtn').disabled = true; $('#updbtn').textContent = '업데이트 중…';
   try { await post('/api/update', {}); } catch { $('#updbtn').disabled = false; $('#updbtn').textContent = '지금 업데이트'; return; }

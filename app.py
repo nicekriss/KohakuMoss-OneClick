@@ -19,7 +19,7 @@ HERE = oc.HERE
 RUNS = HERE / "runs"
 LOCK = threading.Lock()
 STATE = {"stage": "idle", "msg": "", "error": "", "cap_done": 0, "cap_total": 0, "step": 0, "total": 0, "loss": None,
-         "eta_min": None, "phase": "", "name": "", "lora": "", "lora_base": "", "download": ""}
+         "eta_min": None, "phase": "", "name": "", "lora": "", "lora_base": "", "download": "", "crop_done": 0, "crop_total": 0, "crop": None}
 PROJECT = {"trigger": "", "mode": "2", "cls": ""}
 PROC = {"p": None, "stop": False}
 MODE_SEC = {"768": 7.1, "1024": 8.6}  # seconds per step on an RTX 3090 (768: 10-26, 1024: 2026-11-10 full run of 680 steps)
@@ -92,6 +92,11 @@ def comfy_sees(name):
 def data_dir(trig=None):
     t = trig or PROJECT["trigger"]
     return RUNS / t / "dataset" / f"1_{t}"
+
+
+def orig_dir():
+    """Face mode keeps each photo's full-size copy here, so face crops are cut from the sharpest version and can be redone."""
+    return RUNS / PROJECT["trigger"] / "originals"
 
 
 # ---------------------------------------------------------------- self update (git)
@@ -193,7 +198,7 @@ def photos():
     out = []
     for p in sorted(d.glob("*.jpg")):
         cap = p.with_suffix(".txt")
-        out.append({"name": p.name, "url": f"/run/{PROJECT['trigger']}/dataset/1_{PROJECT['trigger']}/{urllib.parse.quote(p.name)}",
+        out.append({"name": p.name, "url": f"/run/{PROJECT['trigger']}/dataset/1_{PROJECT['trigger']}/{urllib.parse.quote(p.name)}?{p.stat().st_mtime_ns}",
                     "caption": cap.read_text(encoding="utf-8") if cap.exists() else ""})
     return out
 
@@ -315,6 +320,57 @@ def caption_job(builtin):
             desc = oc.strip_costume(desc)
         p.with_suffix(".txt").write_text(f"{trig}, {cls}, {desc}", encoding="utf-8")
     set_state(stage="captioned", msg="")
+
+
+def face_square(w, h, box):
+    """The square to cut around a face: the geometry of the crops the face mode was tested with. Big faces (phone selfies)
+    keep hair and jaw at x1.9; smaller faces (webcam, half body) are cut tighter so the face still fills the crop."""
+    x1, y1, x2, y2 = box
+    face = max(x2 - x1, y2 - y1)
+    side = int(min(face * (1.9 if face >= 800 else 1.3), w, h))
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2 - (y2 - y1) * 0.08
+    left = int(min(max(cx - side / 2, 0), w - side))
+    top = int(min(max(cy - side / 2, 0), h - side))
+    return left, top, left + side, top + side
+
+
+def crop_job():
+    work, imgs = RUNS / PROJECT["trigger"], sorted(data_dir().glob("*.jpg"))
+    logf, orig = work / "log.txt", orig_dir()
+    orig.mkdir(parents=True, exist_ok=True)
+    set_state(stage="cropping", crop_done=0, crop_total=len(imgs), crop=None, error="", msg="얼굴 찾는 모델 준비 중")
+    srcs = {}
+    for p in imgs:
+        srcs[p] = orig / p.name
+        if not srcs[p].exists():  # uploaded in another mode: what is in the dataset is the best copy we have
+            shutil.copy2(p, srcs[p])
+    jobs, out = work / "crop_jobs.json", work / "crop_out.json"
+    jobs.write_text(json.dumps({"images": [str(o) for o in srcs.values()]}, ensure_ascii=False), encoding="utf-8")
+
+    def on_line(line):
+        m = re.search(r"얼굴 (\d+)/(\d+)", line)
+        if m:
+            set_state(crop_done=int(m[1]), msg="")
+    stream([sys.executable, HERE / "facecrop.py", jobs, out], logf, on_line=on_line)
+    boxes = json.loads(out.read_text(encoding="utf-8"))
+    res = {"ok": 0, "fail": [], "small": []}
+    for p, o in srcs.items():
+        box = boxes.get(str(o))
+        if not box:
+            res["fail"].append(p.name)
+            continue
+        with Image.open(o) as im:
+            square = face_square(im.width, im.height, box)
+            c = im.convert("RGB").crop(square)
+        if c.width < 384:
+            res["small"].append(p.name)
+        if c.width > 1536:
+            c = c.resize((1536, 1536), Image.LANCZOS)
+        c.save(p, quality=95)
+        p.with_suffix(".txt").unlink(missing_ok=True)  # written for the uncropped photo
+        res["ok"] += 1
+    clear_cache()
+    set_state(stage="cropped", crop=res, msg="")
 
 
 def train_job(strength):
@@ -460,7 +516,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
         q = dict(urllib.parse.parse_qsl(u.query))
-        busy = STATE["stage"] in ("captioning", "training")
+        busy = STATE["stage"] in ("captioning", "training", "cropping")
         try:
             if u.path == "/api/settings":
                 d = json.loads(self.body())
@@ -503,6 +559,11 @@ class H(BaseHTTPRequestHandler):
                 name = Path(q.get("name", "photo")).stem
                 name = re.sub(r'[\\/:*?"<>|]', "_", name)[:80] or "photo"
                 im = ImageOps.exif_transpose(Image.open(BytesIO(self.body()))).convert("RGB")
+                if PROJECT["mode"] == "3":
+                    orig_dir().mkdir(parents=True, exist_ok=True)
+                    full = im.copy()
+                    full.thumbnail((4096, 4096))
+                    full.save(orig_dir() / f"{name}.jpg", quality=95)
                 im.thumbnail((1536, 1536))
                 im.save(data_dir() / f"{name}.jpg", quality=95)
                 return self.send(200, {"ok": True})
@@ -516,6 +577,7 @@ class H(BaseHTTPRequestHandler):
                 for n in names:
                     for ext in (".jpg", ".txt"):
                         (data_dir() / (Path(n).stem + ext)).unlink(missing_ok=True)
+                    (orig_dir() / (Path(n).stem + ".jpg")).unlink(missing_ok=True)
                 if names:
                     clear_cache()
                 return self.send(200, {"ok": True, "removed": len(names)})
@@ -530,12 +592,18 @@ class H(BaseHTTPRequestHandler):
                         n += f.suffix == ".jpg"
                         f.unlink(missing_ok=True)
                     clear_cache()
+                    shutil.rmtree(orig_dir(), ignore_errors=True)
                 PROJECT.clear()
                 PROJECT.update({"trigger": "", "mode": "2", "cls": "", "lora": ""})
                 set_state(stage="idle", msg="", error="", name="", lora="", step=0, total=0, loss=None, eta_min=None,
-                          phase="", cap_done=0, cap_total=0)
+                          phase="", cap_done=0, cap_total=0, crop=None)
                 save_project()
                 return self.send(200, {"ok": True, "removed": n})
+            if u.path == "/api/crop":
+                if busy or not photos():
+                    return self.send(409, {"error": "사진을 넣은 뒤에 눌러 주세요"})
+                job(crop_job)
+                return self.send(200, {"ok": True})
             if u.path == "/api/caption":
                 d = json.loads(self.body())
                 if busy or len(photos()) < 5 or not PROJECT["cls"]:
