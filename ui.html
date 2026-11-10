@@ -143,7 +143,7 @@
 
   <section class="card" id="c-photos">
     <h2><span class="num">3</span>사진 넣기</h2>
-    <p class="sub">장소·옷·각도·조명이 다른 사진 15~30장이 좋아요. 같은 날 같은 장소 사진만 많으면 배경까지 외워요.</p>
+    <p class="sub" id="photohint">장소·옷·각도·조명이 다른 사진 15~30장이 좋아요. 같은 날 같은 장소 사진만 많으면 배경까지 외워요.</p>
     <div class="body">
       <div class="drop" id="drop">여기로 사진이나 폴더를 끌어다 놓거나 <u>눌러서 고르세요</u></div>
       <input type="file" id="pick" accept="image/*" multiple hidden>
@@ -254,9 +254,12 @@ function renderInfo() {
 function renderPhotos() {
   const ph = S.photos;
   const n = ph.length;
-  $('#count').className = 'count ' + (n >= 15 ? 'ok' : n >= 5 ? 'warn' : '');
+  const face = S.project.mode === '3';
+  const enough = face ? 9 : 15;
+  $('#photohint').textContent = face ? '얼굴만 잘라 둔 사진 10장 안팎이면 돼요. 표정·각도·조명이 다른 사진이 좋아요.' : '장소·옷·각도·조명이 다른 사진 15~30장이 좋아요. 같은 날 같은 장소 사진만 많으면 배경까지 외워요.';
+  $('#count').className = 'count ' + (n >= enough ? 'ok' : n >= 5 ? 'warn' : '');
   $('#count').textContent = (uploading ? `올리는 중… ${uploading}장 남음 · ` : '') +
-    (n ? `${n}장` + (n < 5 ? ' — 최소 5장이 필요해요' : n < 15 ? ' — 15장 이상이면 더 좋아요' : '') : '');
+    (n ? `${n}장` + (n < 5 ? ' — 최소 5장이 필요해요' : n < enough ? (face ? ' — 10장 안팎이면 더 좋아요' : ' — 15장 이상이면 더 좋아요') : '') : '');
   const key = ph.map(p => p.url).join('|');  // url carries the trigger, so a renamed project redraws with new paths
   if ($('#grid').dataset.key !== key) {
     $('#grid').dataset.key = key;
